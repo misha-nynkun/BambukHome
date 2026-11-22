@@ -10,7 +10,7 @@
 Управление идёт напрямую по домашнему Wi-Fi, без облака и Raspberry Pi.
 Аккаунт Bambu Lab нужен только для дополнительного раздела MakerWorld — его можно не включать.
 
-**Скачать:** `BambukHome-1.1.0.apk` — 5,7 МБ · Android 8+
+**Скачать:** [BambukHome-1.1.0.apk](https://github.com/misha-nynkun/BambukHome/releases/latest) — 5,7 МБ · Android 8+
 
 SHA-256:
 `a9da2cb4ac7a67f5b1304b16908a03cb7edbd2aa99d5d719ef075d71b4dba0ac`
@@ -30,7 +30,7 @@ Telegram-канал: https://t.me/BambukHome
 - **Стек:** Kotlin, Jetpack Compose, Material 3 (Material You)
 - **Версия:** 1.1.0 (versionCode 7, обновляется поверх 1.0.5)
 - **Сборка:** `app-release.apk` (~5,7 МБ, подписан), debug — `app-debug.apk`
-- **Готовый файл:** `BambukHome-1.1.0.apk` в корне проекта и на рабочем столе
+- **Готовый APK:** [BambukHome-1.1.0.apk](https://github.com/misha-nynkun/BambukHome/releases/latest) в разделе Releases
 
 ## Что нового в 1.1.0
 
