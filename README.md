@@ -1,34 +1,45 @@
 # BambukHome
 
-[![Android 11+](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
+[![Android 8+](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
 [![Kotlin 2.0](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![Version](https://img.shields.io/badge/version-1.0.5-blue)](https://github.com/ВАШ_АККАУНТ/BambukHome/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
+[![License: Freeware](https://img.shields.io/badge/license-Freeware-green)](LICENSE)
 
 **Локальное управление принтерами Bambu (P1S / P1P / X1 / A1 / H2D и совместимыми) с Android-телефона.**
 Управление идёт напрямую по домашнему Wi-Fi, без облака и Raspberry Pi.
 Аккаунт Bambu Lab нужен только для дополнительного раздела MakerWorld — его можно не включать.
 
-[**Скачать последний APK**](https://github.com/ВАШ_АККАУНТ/BambukHome/releases/latest) · 7,7 МБ · Android 11+
+**Скачать:** `BambukHome-1.1.0.apk` — 5,7 МБ · Android 8+
 
-SHA-256 `BambukHome-1.0.5.apk`:
-`7bf72593f2349dda332db3a3df618d4763576b627c24ec5e1912dd815533258d`
+SHA-256:
+`a9da2cb4ac7a67f5b1304b16908a03cb7edbd2aa99d5d719ef075d71b4dba0ac`
 
-> Замени `ВАШ_АККАУНТ` на свой GitHub username после создания репозитория.
+Telegram-канал: https://t.me/BambukHome
+
+Тема 4PDA: ссылка появится после публикации.
 
 ## Зачем
 
 Телефон всегда под рукой, принтер стоит рядом, а для базовых задач не хочется поднимать ПК или Raspberry Pi, заводить аккаунт и зависеть от интернета. BambukHome закрывает локальный сценарий: подключился по IP, видишь статус, управляешь печатью, AMS, камерой и файлами. MakerWorld и облачный аккаунт — отдельный опциональный слой, а не обязательное условие.
 
 - **Пакет:** `ru.layerpilot`
-- **Android:** 11 (API 30) и новее (targetSdk 35); проверено на Android 11 и 15
+- **Android:** 8 (API 26) и новее (targetSdk 35); проверено на Android 15
 - **Языки:** русский, английский, немецкий, французский, испанский, итальянский,
   португальский, польский, турецкий, китайский
 - **Стек:** Kotlin, Jetpack Compose, Material 3 (Material You)
-- **Версия:** 1.0.5 (versionCode 6, обновляется поверх 1.0.4)
-- **Сборка:** `app-release.apk` (~7,7 МБ, подписан), debug — `app-debug.apk`
-- **Готовый файл:** `BambukHome-1.0.5.apk` в корне проекта и на рабочем столе
+- **Версия:** 1.1.0 (versionCode 7, обновляется поверх 1.0.5)
+- **Сборка:** `app-release.apk` (~5,7 МБ, подписан), debug — `app-debug.apk`
+- **Готовый файл:** `BambukHome-1.1.0.apk` в корне проекта и на рабочем столе
+
+## Что нового в 1.1.0
+
+- **Telegram-канал** `@BambukHome` в разделе «О приложении».
+- **Защита авторства:** проверка подписи APK, предупреждение о неофициальной сборке и водяные знаки с каналом.
+- **Android 8+ (API 26)** — приложение работает на более широком парке устройств.
+- **Зелёный индикатор подключения** на главном экране: сразу видно, что есть контакт с принтером.
+- **Исправлена нижняя панель** после перехода в AMS.
+- Обновлены условия распространения: BambukHome Freeware License.
 
 ## Что нового в 1.0.5
 
@@ -251,11 +262,11 @@ ui/
 
 Пакет остался `ru.layerpilot`, ключ подписи тот же, versionCode увеличен до 6.
 Настройки, профили принтеров, выбранный шрифт и статистика сохраняются.
-Установите `BambukHome-1.0.5.apk` поверх 1.0.4.
+Установите `BambukHome-1.1.0.apk` поверх 1.0.5.
 
 ## Что проверено
 
-- Release-сборка, подпись, установка и запуск на Android 11 (API 30) и Android 15 (API 35).
+- Release-сборка, подпись, установка и запуск на Android 15 (API 35); минимальная версия — Android 8 (API 26).
 - Демо-режим с AMS и без AMS: печать, пауза/стоп, температуры, вентиляторы, скорость.
 - Импорт 3MF: превью пластины, 2 цвета, список объектов для пропуска.
 - Собственный FTPS-клиент против тестового implicit-FTPS сервера: список, загрузка,
@@ -268,7 +279,7 @@ ui/
   подсказки имеют английский fallback.
 - Обновление установлено поверх 1.0.0: настройки и демо-режим сохранились.
 - Свой цвет, масштаб интерфейса (85–130 %), Ndot 77, свой шрифт из памяти телефона, профили печати.
-- Тихий прогресс в шторке проверен на Android 11 и 15.
+- Тихий прогресс в шторке проверен на Android 8 и 15.
 - Живой принтер, MQTT-команды и реальная TLS-камера требуют проверки на P1S — в среде разработки его нет.
 
 ## Ограничения (честно)
@@ -291,13 +302,14 @@ BambukHome не содержит рекламы, аналитики и трек�
 
 ## Поддержка
 
-- Вопросы и баги: [Issues](https://github.com/ВАШ_АККАУНТ/BambukHome/issues)
-- Перед созданием issue укажи модель принтера, прошивку, версию Android и шаги.
+- Telegram-канал: [@BambukHome](https://t.me/BambukHome)
+- Вопросы и баги — в теме 4PDA (ссылка появится после публикации).
+- Перед вопросом укажи модель принтера, прошивку, версию Android и шаги.
 - Не прикладывай код доступа, serial и личные данные.
 
 ## Лицензия
 
-MIT. См. [LICENSE](LICENSE).
+BambukHome Freeware License. См. [LICENSE](LICENSE).
 
 ## Дисклеймер
 
@@ -312,7 +324,7 @@ BambukHome is an unofficial Android client for local control of Bambu Lab 3D
 printers over home Wi-Fi. It supports P1S/P1P/X1/A1/H2D and compatible models:
 print progress and control, temperatures, fans, AMS, files over FTPS, camera,
 timelapses, quiet notifications, multiple printers and optional MakerWorld.
-No ads or subscriptions. Android 11+. See [PRIVACY.md](PRIVACY.md) and
+No ads or subscriptions. Android 8+. See [PRIVACY.md](PRIVACY.md) and
 [LICENSE](LICENSE).
 
 > Not affiliated with Bambu Lab. Bambu Lab and MakerWorld are trademarks of

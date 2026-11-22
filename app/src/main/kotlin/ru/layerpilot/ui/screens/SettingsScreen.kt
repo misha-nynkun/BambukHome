@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.layerpilot.BuildConfig
+import ru.layerpilot.data.identity.AppIdentity
 import ru.layerpilot.data.model.ThemeMode
 import ru.layerpilot.ui.AppViewModel
 import ru.layerpilot.ui.components.ConnectionBadge
@@ -97,6 +98,7 @@ fun SettingsScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val connection by vm.connection.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
+    val official = remember { AppIdentity.isOfficial(ctx) }
     var showDisconnect by remember { mutableStateOf(false) }
     val fontLoading by vm.fontLoading.collectAsStateWithLifecycle()
     val fontError by vm.fontError.collectAsStateWithLifecycle()
@@ -625,8 +627,26 @@ fun SettingsScreen(
             SectionCard(icon = Icons.Rounded.Info, title = "О приложении") {
                 InfoRow("Версия", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                 InfoRow("Пакет", "ru.layerpilot")
-                InfoRow("Android", "11+ (API 30)")
+                InfoRow("Android", "8+ (API 26)")
+                InfoRow("Сборка", if (official) "официальная" else "неофициальная")
                 InfoRow("Связь", "MQTT 8883 · FTPS ${settings.ftpPort} · камера 6000")
+
+                if (!official) {
+                    Spacer(Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            "Подпись не совпадает с оригиналом. Это неофициальная сборка. " +
+                                "Оригинал и поддержка: t.me/BambukHome. Если вы купили приложение — вас обманули.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
 
                 Spacer(Modifier.height(12.dp))
                 Surface(shape = RoundedCornerShape(18.dp),
@@ -663,6 +683,44 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Text("Telegram-канал", style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Surface(
+                    onClick = {
+                        runCatching {
+                            ctx.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(AppIdentity.TELEGRAM_CHANNEL))
+                            )
+                        }
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Surface(shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(36.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.Send, null, Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimary)
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("@BambukHome", fontWeight = FontWeight.Bold)
+                            Text("Новости, релизы и обсуждения",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
                 }
 
@@ -713,9 +771,23 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
                 Text(
+                    "${AppIdentity.COPYRIGHT} · ${AppIdentity.TELEGRAM_CHANNEL}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
                     "BambukHome — независимый клиент. Не связан с Bambu Lab; названия моделей " +
                         "используются только для совместимости. Протокол неофициальный: после обновления " +
                         "прошивки часть команд может измениться.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "BambukHome Freeware License: личное использование бесплатно; " +
+                        "продажа, ребрендинг и присвоение авторства запрещены.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

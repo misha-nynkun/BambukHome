@@ -1,21 +1,64 @@
-MIT License
+BambukHome Freeware License
+Version 1.0, 22 November 2026
 
-Copyright (c) 2026 BambukHome contributors
+Copyright (c) 2026 BambukHome / mikhail_qqq4
+Telegram: https://t.me/BambukHome
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license applies to the BambukHome application, its source code,
+resources, name, icon and documentation (the "Software"), except for
+third-party components that are distributed under their own licenses.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. FREE PERSONAL USE
+Permission is granted to use the Software for personal, non-commercial
+purposes free of charge.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. SHARING
+You may share the original, unmodified APK for free, provided that this
+license, the copyright notice and the link to https://t.me/BambukHome
+are kept intact.
+
+3. PROHIBITED USE
+You may not:
+  a) sell, rent, sublicense or otherwise charge money for the Software
+     or for access to it;
+  b) publish the Software or a modified version under another name,
+     brand, icon or author;
+  c) remove, hide or replace copyright, author, Telegram or license
+     notices;
+  d) claim that you are the author or the official publisher of the
+     Software;
+  e) distribute modified versions for money or as a competing product
+     without written permission from the author.
+
+4. MODIFIED VERSIONS
+You may modify the Software for personal use. If you share a modified
+version, it must:
+  a) be distributed free of charge;
+  b) clearly state that it is modified and not the official build;
+  c) keep the original copyright notice and the link to
+     https://t.me/BambukHome;
+  d) not use the official BambukHome name or icon in a way that implies
+     official status.
+
+5. NO WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+THE AUTHOR IS NOT LIABLE FOR ANY DAMAGE TO PRINTERS, FILAMENTS, DATA,
+PROPERTY OR ANY OTHER LOSS RESULTING FROM THE USE OF THE SOFTWARE.
+
+6. TRADEMARKS
+Bambu Lab, MakerWorld and other third-party names are trademarks of
+their respective owners. BambukHome is an independent project and is
+not affiliated with Bambu Lab.
+
+7. TERMINATION
+This license terminates automatically if you violate its terms. On
+termination you must stop using and distributing the Software.
+
+8. COMMERCIAL LICENSING
+For commercial use, store publication, rebranding or other permissions,
+contact the author via https://t.me/BambukHome.
+
+This document is a license notice, not legal advice. Local law may give
+you additional rights that cannot be waived by this license.

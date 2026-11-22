@@ -2,21 +2,19 @@ package ru.layerpilot.data.files
 
 import android.content.ContentValues
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import java.io.File
 
-/** Кладёт скачанный файл в общую папку «Загрузки/BambukHome», без разрешений. */
+/** Кладёт скачанный файл в «Загрузки/BambukHome». */
 object Downloads {
 
     fun save(context: Context, file: File, displayName: String = file.name): Boolean {
-        val mime = when {
-            displayName.endsWith(".3mf", true) -> "model/3mf"
-            displayName.endsWith(".gcode", true) -> "text/x-gcode"
-            displayName.endsWith(".avi", true) -> "video/x-msvideo"
-            displayName.endsWith(".mp4", true) -> "video/mp4"
-            else -> "application/octet-stream"
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return saveLegacy(context, file, displayName)
         }
+        val mime = mimeFor(displayName)
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, displayName)
             put(MediaStore.Downloads.MIME_TYPE, mime)
@@ -33,5 +31,26 @@ object Downloads {
             resolver.update(uri, done, null, null)
             true
         }.getOrDefault(false)
+    }
+
+    /**
+     * Android 8–9 не умеет MediaStore.Downloads. Кладём файл в
+     * app-specific папку — без разрешений на общую память.
+     */
+    private fun saveLegacy(context: Context, file: File, displayName: String): Boolean {
+        val base = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        val dir = File(base, "BambukHome").apply { mkdirs() }
+        return runCatching {
+            file.copyTo(File(dir, displayName), overwrite = true)
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun mimeFor(name: String): String = when {
+        name.endsWith(".3mf", true) -> "model/3mf"
+        name.endsWith(".gcode", true) -> "text/x-gcode"
+        name.endsWith(".avi", true) -> "video/x-msvideo"
+        name.endsWith(".mp4", true) -> "video/mp4"
+        else -> "application/octet-stream"
     }
 }

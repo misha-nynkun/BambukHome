@@ -2,6 +2,7 @@ package ru.layerpilot.data.camera
 
 import android.content.ContentValues
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
@@ -104,11 +105,20 @@ class CameraClient {
     companion object {
         fun saveToGallery(context: Context, jpeg: ByteArray): Boolean {
             val name = "BambukHome_${System.currentTimeMillis()}.jpg"
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                val base = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+                    ?: context.filesDir
+                val dir = java.io.File(base, "BambukHome").apply { mkdirs() }
+                return runCatching {
+                    java.io.File(dir, name).writeBytes(jpeg)
+                    true
+                }.getOrDefault(false)
+            }
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, name)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                 put(MediaStore.Images.Media.RELATIVE_PATH,
-                    "${Environment.DIRECTORY_PICTURES}/LayerPilot")
+                    "${Environment.DIRECTORY_PICTURES}/BambukHome")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
             val resolver = context.contentResolver

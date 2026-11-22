@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -33,6 +34,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import ru.layerpilot.ui.locale.Text
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
@@ -45,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +60,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import ru.layerpilot.data.identity.AppIdentity
 import ru.layerpilot.ui.AppViewModel
 import ru.layerpilot.ui.MakerWorldViewModel
 import ru.layerpilot.ui.screens.AmsScreen
@@ -187,6 +191,20 @@ private data class Tab(
     val inactiveIcon: androidx.compose.ui.graphics.vector.ImageVector = icon,
 )
 
+private fun androidx.navigation.NavHostController.openTab(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
+private fun androidx.navigation.NavHostController.backToDashboard() {
+    if (!popBackStack("dashboard", inclusive = false)) {
+        navigate("dashboard") { launchSingleTop = true }
+    }
+}
+
 private fun tabsFor(showModels: Boolean, showMakerWorld: Boolean): List<Tab> = buildList {
     add(Tab("dashboard", "Печать", Icons.Rounded.Print, Icons.Outlined.Print))
     add(Tab("ams", "Пластик", Icons.Rounded.Science, Icons.Outlined.Science))
@@ -203,6 +221,9 @@ private fun MainScaffold(
 ) {
     val nav = rememberNavController()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val official = remember { AppIdentity.isOfficial(context) }
+    var showUnofficial by remember { mutableStateOf(!official) }
     val tabs = remember(settings.showModelsTab, settings.showMakerWorldTab) {
         tabsFor(settings.showModelsTab, settings.showMakerWorldTab)
     }
@@ -242,13 +263,7 @@ private fun MainScaffold(
                     tabs.forEach { tab ->
                         NavigationBarItem(
                             selected = route == tab.route,
-                            onClick = {
-                                nav.navigate(tab.route) {
-                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
+                            onClick = { nav.openTab(tab.route) },
                             icon = {
                                 Icon(
                                     if (route == tab.route) tab.icon else tab.inactiveIcon,
@@ -290,25 +305,25 @@ private fun MainScaffold(
                     vm = vm,
                     onSettings = { nav.navigate("settings") },
                     onControl = { nav.navigate("control") },
-                    onAms = { nav.navigate("ams") { launchSingleTop = true } },
+                    onAms = { nav.openTab("ams") },
                     onCamera = { nav.navigate("camera") },
-                    onFiles = { nav.navigate("files") { launchSingleTop = true } },
+                    onFiles = { nav.openTab("files") },
                     onPrinters = { nav.navigate("printers") },
                 )
             }
-            composable("ams") { AmsScreen(vm, onBack = { nav.navigate("dashboard") { launchSingleTop = true } }) }
+            composable("ams") { AmsScreen(vm, onBack = { nav.backToDashboard() }) }
             composable("files") {
                 FilesScreen(
                     vm,
-                    onBack = { nav.navigate("dashboard") { launchSingleTop = true } },
+                    onBack = { nav.backToDashboard() },
                     onPlayVideo = { video = it },
                 )
             }
             composable("models") {
                 ModelsScreen(
                     vm,
-                    onBack = { nav.navigate("dashboard") { launchSingleTop = true } },
-                    onMakerWorld = { nav.navigate("makerworld") { launchSingleTop = true } },
+                    onBack = { nav.backToDashboard() },
+                    onMakerWorld = { nav.openTab("makerworld") },
                     onOpen3D = { model3d = it },
                 )
             }
@@ -316,7 +331,7 @@ private fun MainScaffold(
                 val makerWorldVm: MakerWorldViewModel = viewModel()
                 MakerWorldScreen(
                     vm = makerWorldVm,
-                    onBack = { nav.navigate("dashboard") { launchSingleTop = true } },
+                    onBack = { nav.backToDashboard() },
                     onOpen3D = { model3d = it },
                 )
             }
@@ -331,7 +346,7 @@ private fun MainScaffold(
                     onEditConnection = { nav.navigate("connect") },
                     onPrinterInfo = { nav.navigate("printer_info") },
                     onPrinters = { nav.navigate("printers") },
-                    onMakerWorld = { nav.navigate("makerworld") { launchSingleTop = true } },
+                    onMakerWorld = { nav.openTab("makerworld") },
                 )
             }
             composable("connect") {
@@ -352,5 +367,22 @@ private fun MainScaffold(
                 onClose = { model3d = null },
             )
         }
+    }
+
+    if (showUnofficial) {
+        AlertDialog(
+            onDismissRequest = { showUnofficial = false },
+            title = { Text("Неофициальная сборка") },
+            text = {
+                Text(
+                    "Подпись приложения не совпадает с оригинальной. " +
+                        "Оригинал и поддержка: ${AppIdentity.TELEGRAM_CHANNEL}. " +
+                        "Если вы купили это приложение — вас обманули.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showUnofficial = false }) { Text("Понятно") }
+            },
+        )
     }
 }

@@ -2,6 +2,7 @@ package ru.layerpilot.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -113,9 +114,10 @@ fun StatusChip(phase: PrintPhase, label: String? = null, demo: Boolean = false) 
 
 @Composable
 fun ConnectionBadge(status: ConnectionStatus, onClick: () -> Unit = {}) {
+    val connectedGreen = if (isSystemInDarkTheme()) Color(0xFF7BD88F) else Color(0xFF1B7F3A)
     val (text, color) = when (status) {
         is ConnectionStatus.Connected -> if (status.demo) "ДЕМО" to MaterialTheme.colorScheme.tertiary
-        else "ЛОКАЛЬНО" to MaterialTheme.colorScheme.primary
+        else "ПОДКЛЮЧЕН" to connectedGreen
         is ConnectionStatus.Connecting -> "ПОДКЛЮЧЕНИЕ" to MaterialTheme.colorScheme.onSurfaceVariant
         is ConnectionStatus.Reconnecting -> "ПЕРЕПОДКЛЮЧЕНИЕ" to MaterialTheme.colorScheme.tertiary
         is ConnectionStatus.Error -> "НЕТ СВЯЗИ" to MaterialTheme.colorScheme.error
