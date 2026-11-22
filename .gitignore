@@ -11,3 +11,7 @@ keystore/*.jks
 .kotlin/
 captures/
 .DS_Store
+
+# 4PDA-материалы (локально, не для GitHub)
+4PDA_THREAD.txt
+4pda/
