@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,7 @@ import androidx.compose.material3.Switch
 import ru.layerpilot.ui.locale.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +53,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -59,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.layerpilot.data.model.PrinterModel
+import ru.layerpilot.data.printer.PrinterDiscovery
 import ru.layerpilot.ui.AppViewModel
 import ru.layerpilot.ui.components.TonalCard
 import ru.layerpilot.ui.theme.NdotFamily
@@ -75,6 +79,10 @@ fun ConnectScreen(vm: AppViewModel, onConnected: () -> Unit, onBack: (() -> Unit
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var demoAms by rememberSaveable { mutableStateOf(settings.demoAms) }
+    val ctx = LocalContext.current
+    val discovery = remember { PrinterDiscovery(ctx) }
+    val foundPrinters by discovery.found.collectAsStateWithLifecycle()
+    DisposableEffect(Unit) { onDispose { discovery.stop() } }
 
     val canConnect = host.isNotBlank() && code.isNotBlank() && serial.isNotBlank()
 
@@ -133,6 +141,26 @@ fun ConnectScreen(vm: AppViewModel, onConnected: () -> Unit, onBack: (() -> Unit
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { discovery.start() },
+                    shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Rounded.Wifi, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("Найти в сети")
+                }
+                Text("mDNS", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            foundPrinters.forEach { found ->
+                TextButton(onClick = {
+                    host = found.host
+                    if (name.isBlank()) name = found.name
+                    discovery.stop()
+                }) {
+                    Text("${found.name} · ${found.host}")
+                }
+            }
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = code,

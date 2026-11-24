@@ -19,8 +19,8 @@ android {
         applicationId = "ru.layerpilot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.1.0"
+        versionCode = 14
+        versionName = "2.0.0"
     }
 
     signingConfigs {
@@ -98,6 +98,8 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.4.1")
 
     implementation("com.google.android.material:material:1.12.0")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("com.google.zxing:core:3.5.3")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

@@ -1,0 +1,26 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="farm"
+        android:enabled="true"
+        android:icon="@drawable/ic_stat_bambuk"
+        android:shortcutShortLabel="@string/shortcut_farm"
+        android:shortcutLongLabel="@string/shortcut_farm_long">
+        <intent android:action="android.intent.action.VIEW"
+            android:targetPackage="ru.layerpilot"
+            android:targetClass="ru.layerpilot.MainActivity">
+            <extra android:name="shortcut" android:value="farm" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="camera"
+        android:enabled="true"
+        android:icon="@drawable/ic_stat_bambuk"
+        android:shortcutShortLabel="@string/shortcut_camera"
+        android:shortcutLongLabel="@string/shortcut_camera_long">
+        <intent android:action="android.intent.action.VIEW"
+            android:targetPackage="ru.layerpilot"
+            android:targetClass="ru.layerpilot.MainActivity">
+            <extra android:name="shortcut" android:value="camera" />
+        </intent>
+    </shortcut>
+</shortcuts>

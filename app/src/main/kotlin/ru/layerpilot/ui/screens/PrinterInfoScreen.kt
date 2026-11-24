@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.QrCode
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Science
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.layerpilot.BuildConfig
 import ru.layerpilot.data.model.PrintPhase
@@ -67,6 +70,7 @@ fun PrinterInfoScreen(vm: AppViewModel, onBack: () -> Unit) {
     val stats by vm.stats.collectAsStateWithLifecycle()
     var confirmReset by remember { mutableStateOf(false) }
     var editStats by remember { mutableStateOf(false) }
+    var showQr by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -78,6 +82,11 @@ fun PrinterInfoScreen(vm: AppViewModel, onBack: () -> Unit) {
             title = "О принтере",
             subtitle = settings.printerName,
             onBack = onBack,
+            actions = {
+                androidx.compose.material3.IconButton(onClick = { showQr = true }) {
+                    Icon(Icons.Rounded.QrCode, "QR-код принтера")
+                }
+            },
         )
         Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
@@ -276,6 +285,28 @@ fun PrinterInfoScreen(vm: AppViewModel, onBack: () -> Unit) {
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Отмена") } },
         )
     }
+    if (showQr) {
+        val payload = "bambuhome://printer?host=${settings.host}&serial=${settings.serial}&model=${settings.model.name}&name=${settings.printerName}"
+        val bitmap = remember(payload) { qrBitmap(payload) }
+        AlertDialog(
+            onDismissRequest = { showQr = false },
+            title = { Text("QR-код принтера") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    bitmap?.let {
+                        Image(
+                            it.asImageBitmap(),
+                            contentDescription = "QR-код",
+                            modifier = Modifier.size(240.dp),
+                        )
+                    }
+                    Text("${settings.host}:8883 · ${settings.serial}",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showQr = false }) { Text("Закрыть") } },
+        )
+    }
 }
 
 @Composable
@@ -385,4 +416,16 @@ private fun StatsEditDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
+
 }
+
+private fun qrBitmap(text: String, size: Int = 640): android.graphics.Bitmap? = runCatching {
+    val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
+        text, com.google.zxing.BarcodeFormat.QR_CODE, size, size,
+    )
+    val pixels = IntArray(size * size)
+    for (y in 0 until size) for (x in 0 until size) {
+        pixels[y * size + x] = if (matrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+    }
+    android.graphics.Bitmap.createBitmap(pixels, size, size, android.graphics.Bitmap.Config.ARGB_8888)
+}.getOrNull()

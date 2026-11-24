@@ -5,11 +5,15 @@ import ru.layerpilot.data.models.PlateInspector
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Canvas
 import ru.layerpilot.ui.components.ExpressiveLoadingIndicator
+import ru.layerpilot.ui.components.CalmLoadingIndicator
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -228,6 +232,7 @@ private fun TempSlider(
     onCommit: (Int) -> Unit,
 ) {
     var local by remember(value) { mutableFloatStateOf(value.coerceIn(range.start, range.endInclusive)) }
+    var pending by remember { mutableStateOf<Int?>(null) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
         Text("${local.toInt()}°", fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold, color = accent)
@@ -238,7 +243,10 @@ private fun TempSlider(
     WavySlider(
         value = local,
         onValueChange = { local = it },
-        onValueChangeFinished = { onCommit(local.toInt()) },
+        onValueChangeFinished = {
+            val target = local.toInt()
+            if (target != value.toInt()) pending = target else local = value
+        },
         valueRange = range,
         accent = accent,
         thickness = thickness,
@@ -249,10 +257,34 @@ private fun TempSlider(
         presets.forEach { preset ->
             FilterChip(
                 selected = local.toInt() == preset,
-                onClick = { local = preset.toFloat(); onCommit(preset) },
+                onClick = {
+                    if (preset != value.toInt()) pending = preset else local = preset.toFloat()
+                },
                 label = { Text(if (preset == 0) "выкл" else "$preset°") },
             )
         }
+    }
+
+    pending?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pending = null; local = value.coerceIn(range.start, range.endInclusive) },
+            title = { Text("Изменить $label?") },
+            text = {
+                Text(
+                    "Сейчас ${value.toInt()}°, станет $target°. " +
+                        "Проверьте, что это не случайное движение ползунка.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { local = target.toFloat(); pending = null; onCommit(target) }) { Text("Применить") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    pending = null
+                    local = value.coerceIn(range.start, range.endInclusive)
+                }) { Text("Отмена") }
+            },
+        )
     }
 }
 
@@ -276,6 +308,7 @@ private fun Fans(
                 FanKind.CHAMBER -> state.chamberFan
             }
             var local by remember(value) { mutableFloatStateOf(value.toFloat()) }
+            var pending by remember { mutableStateOf<Int?>(null) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(kind.label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 Text("${local.toInt()}%", fontWeight = FontWeight.Bold,
@@ -284,23 +317,40 @@ private fun Fans(
             WavySlider(
                 value = local,
                 onValueChange = { local = it },
-                onValueChangeFinished = { onFan(kind, local.toInt()) },
+                onValueChangeFinished = {
+                    val target = local.toInt()
+                    if (target != value) pending = target else local = value.toFloat()
+                },
                 valueRange = 0f..100f,
                 thickness = settings.waveThickness,
                 amplitude = settings.waveAmplitude,
                 animated = settings.waveAnimation,
             )
+            pending?.let { target ->
+                AlertDialog(
+                    onDismissRequest = { pending = null; local = value.toFloat() },
+                    title = { Text("Изменить ${kind.label}?") },
+                    text = { Text("Сейчас $value%, станет $target%. Применить?") },
+                    confirmButton = {
+                        TextButton(onClick = { local = target.toFloat(); pending = null; onFan(kind, target) }) { Text("Применить") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pending = null; local = value.toFloat() }) { Text("Отмена") }
+                    },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun Movement(
+internal fun Movement(
     state: PrinterSnapshot,
     busy: Boolean,
     onMove: (String, Int) -> Unit,
     onHome: () -> Unit,
     onExtrude: (Int) -> Unit,
+    showExtrude: Boolean = true,
 ) {
     var step by remember { mutableStateOf(10) }
     TonalCard(Modifier.fillMaxWidth()) {
@@ -351,24 +401,26 @@ private fun Movement(
                 MoveButton(Icons.Rounded.Home, "Домой", enabled = !busy) { onHome() }
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FilledTonalButton(onClick = { onExtrude(10) }, enabled = !busy,
-                shape = RoundedCornerShape(14.dp)) {
-                Icon(Icons.Rounded.Add, null, Modifier.size(17.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("10 мм")
+        if (showExtrude) {
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledTonalButton(onClick = { onExtrude(10) }, enabled = !busy,
+                    shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Rounded.Add, null, Modifier.size(17.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("10 мм")
+                }
+                FilledTonalButton(onClick = { onExtrude(-10) }, enabled = !busy,
+                    shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Rounded.Remove, null, Modifier.size(17.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("10 мм")
+                }
+                Spacer(Modifier.weight(1f))
+                Text("сопло ${state.nozzle.toInt()}°", fontSize = 11.sp, lineHeight = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.CenterVertically))
             }
-            FilledTonalButton(onClick = { onExtrude(-10) }, enabled = !busy,
-                shape = RoundedCornerShape(14.dp)) {
-                Icon(Icons.Rounded.Remove, null, Modifier.size(17.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("10 мм")
-            }
-            Spacer(Modifier.weight(1f))
-            Text("сопло ${state.nozzle.toInt()}°", fontSize = 11.sp, lineHeight = 15.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterVertically))
         }
     }
 }
@@ -426,7 +478,7 @@ private fun SkipDialog(vm: AppViewModel, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(10.dp))
-                    ExpressiveLoadingIndicator(size = 42.dp)
+                    CalmLoadingIndicator(size = 54.dp)
                 }
                 error != null -> Text("Не удалось: $error")
                 plate == null || plate!!.parts.isEmpty() -> Text("На этой пластине нет деталей для пропуска")
@@ -443,11 +495,17 @@ private fun SkipDialog(vm: AppViewModel, onDismiss: () -> Unit) {
                         },
                     )
                     Spacer(Modifier.height(10.dp))
-                    plate!!.parts.forEach { obj ->
+                    plate!!.parts.forEachIndexed { index, obj ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            Text(
+                                "${index + 1}",
+                                modifier = Modifier.width(22.dp),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                             Checkbox(
                                 checked = obj.id in selected,
                                 onCheckedChange = { checked ->
@@ -488,6 +546,10 @@ private fun SkipPlateView(
     val normalLine = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
     val skipFill = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
     val skipLine = MaterialTheme.colorScheme.error
+    val preview = remember(plate.preview) {
+        plate.preview?.let { runCatching { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
+            ?.asImageBitmap()
+    }
 
     Surface(
         shape = RoundedCornerShape(18.dp),
@@ -511,6 +573,12 @@ private fun SkipPlateView(
         ) {
             val sx = size.width / plate.bedWidth
             val sy = size.height / plate.bedHeight
+            preview?.let { image ->
+                drawImage(
+                    image = image,
+                    dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
+                )
+            }
             // сетка стола
             val step = if (plate.bedWidth <= 200f) 20f else 25f
             var g = 0f
@@ -535,6 +603,26 @@ private fun SkipPlateView(
                     path,
                     color = if (isSelected) skipLine else normalLine,
                     style = Stroke(width = (if (isSelected) 2.5f else 1.5f).dp.toPx()),
+                )
+                val cx = part.polygon.map { it.x }.average().toFloat() * sx
+                val cy = size.height - part.polygon.map { it.y }.average().toFloat() * sy
+                val label = "${plate.parts.indexOf(part) + 1}"
+                drawCircle(
+                    color = if (isSelected) skipLine else normalLine,
+                    radius = 9.dp.toPx(),
+                    center = Offset(cx, cy),
+                )
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.WHITE
+                    textSize = 11.dp.toPx()
+                    textAlign = android.graphics.Paint.Align.CENTER
+                    isFakeBoldText = true
+                }
+                drawContext.canvas.nativeCanvas.drawText(
+                    label,
+                    cx,
+                    cy + paint.textSize * 0.35f,
+                    paint,
                 )
             }
         }

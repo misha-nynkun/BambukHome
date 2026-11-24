@@ -108,6 +108,21 @@ object PrintNotifications {
         } else {
             builder.setProgress(100, snapshot.progress.coerceIn(0, 100), false)
         }
+        if (snapshot.phase == PrintPhase.PRINTING || snapshot.phase == PrintPhase.PAUSED) {
+            builder.addAction(
+                androidx.core.app.NotificationCompat.Action.Builder(
+                    R.drawable.ic_stat_bambuk,
+                    if (snapshot.phase == PrintPhase.PRINTING) "Пауза" else "Продолжить",
+                    actionIntent(context, if (snapshot.phase == PrintPhase.PRINTING) "pause" else "resume"),
+                ).build(),
+            )
+            builder.addAction(
+                androidx.core.app.NotificationCompat.Action.Builder(
+                    R.drawable.ic_stat_bambuk,
+                    "Стоп", actionIntent(context, "stop"),
+                ).build(),
+            )
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
         }
@@ -122,6 +137,14 @@ object PrintNotifications {
                 .notify(ID, build(context, snapshot, printerName))
         }
     }
+
+    private fun actionIntent(context: Context, action: String): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            action.hashCode(),
+            Intent(context, MainActivity::class.java).putExtra("printer_action", action),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
 
     fun cancel(context: Context) {
         runCatching { NotificationManagerCompat.from(context).cancel(ID) }

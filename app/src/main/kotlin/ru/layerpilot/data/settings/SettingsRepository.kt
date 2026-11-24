@@ -59,13 +59,33 @@ data class AppSettings(
     val vibrationCaliDefault: Boolean = false,
     val uploadFolder: String = "/cache",
     val ftpPort: Int = 990,
-    val thingiverseToken: String = "",
     val printersJson: String = "",
     val activePrinterId: String = "",
-    val showModelsTab: Boolean = true,
-    val showMakerWorldTab: Boolean = true,
     val dashboardOrder: String = "",
     val dashboardHidden: String = "",
+    // ---- Clawd, локальный питомец. По умолчанию выключен.
+    val clawdEnabled: Boolean = false,
+    val clawdName: String = "Clawd",
+    val clawdOwnerName: String = "",
+    val clawdSize: Int = 1,
+    val clawdColor: Int = 0,
+    val clawdWander: Boolean = true,
+    val clawdPhrases: Boolean = true,
+    val clawdSleepMin: Int = 3,
+    val clawdEat: Boolean = true,
+    val clawdPoop: Boolean = true,
+    val clawdShake: Boolean = true,
+    val clawdHaptics: Boolean = true,
+    val clawdBrain: Boolean = true,
+    val clawdAbout: String = "",
+    val clawdDance: Boolean = true,
+    val clawdReduceMotion: Boolean = false,
+    val clawdQuiet: Boolean = true,
+    val energyPricePerKwh: Float = 0f,
+    val biometricLock: Boolean = false,
+    val hideCameraInRecents: Boolean = true,
+    val spaghettiDetection: Boolean = false,
+    val showFarmQuickAction: Boolean = false,
 ) {
     val isConfigured: Boolean
         get() = demoMode || (host.isNotBlank() && accessCode.isNotBlank() && serial.isNotBlank())
@@ -84,6 +104,15 @@ class SettingsRepository(private val context: Context) {
             val stored = runCatching { context.dataStore.data.first() }.getOrNull()
             if (stored != null) {
                 var value = stored.toSettings()
+                if (stored[Keys.SMART_LIGHT_MIGRATED] != true) {
+                    // В 1.1.6 «свет при открытии» стал умным: включаем один раз
+                    // для существующих установок, но дальше пользователь может выключить.
+                    value = value.copy(cameraAutoLight = true)
+                    context.dataStore.edit { prefs ->
+                        prefs[Keys.SMART_LIGHT_MIGRATED] = true
+                        prefs[Keys.CAM_LIGHT] = true
+                    }
+                }
                 if (value.printersJson.isBlank() &&
                     (value.host.isNotBlank() || value.demoMode)
                 ) {
@@ -142,13 +171,32 @@ class SettingsRepository(private val context: Context) {
                     prefs[Keys.VIBRATION] = next.vibrationCaliDefault
                     prefs[Keys.UPLOAD] = next.uploadFolder
                     prefs[Keys.FTP_PORT] = next.ftpPort.toString()
-                    prefs[Keys.THINGIVERSE] = next.thingiverseToken.trim()
                     prefs[Keys.PRINTERS] = next.printersJson
                     prefs[Keys.ACTIVE_PRINTER] = next.activePrinterId
-                    prefs[Keys.SHOW_MODELS] = next.showModelsTab
-                    prefs[Keys.SHOW_MAKERWORLD] = next.showMakerWorldTab
                     prefs[Keys.DASHBOARD_ORDER] = next.dashboardOrder
                     prefs[Keys.DASHBOARD_HIDDEN] = next.dashboardHidden
+                    prefs[Keys.CLAWD_ENABLED] = next.clawdEnabled
+                    prefs[Keys.CLAWD_NAME] = next.clawdName
+                    prefs[Keys.CLAWD_OWNER] = next.clawdOwnerName
+                    prefs[Keys.CLAWD_SIZE] = next.clawdSize
+                    prefs[Keys.CLAWD_COLOR] = next.clawdColor
+                    prefs[Keys.CLAWD_WANDER] = next.clawdWander
+                    prefs[Keys.CLAWD_PHRASES] = next.clawdPhrases
+                    prefs[Keys.CLAWD_SLEEP] = next.clawdSleepMin
+                    prefs[Keys.CLAWD_EAT] = next.clawdEat
+                    prefs[Keys.CLAWD_POOP] = next.clawdPoop
+                    prefs[Keys.CLAWD_SHAKE] = next.clawdShake
+                    prefs[Keys.CLAWD_HAPTICS] = next.clawdHaptics
+                    prefs[Keys.CLAWD_BRAIN] = next.clawdBrain
+                    prefs[Keys.CLAWD_ABOUT] = next.clawdAbout
+                    prefs[Keys.CLAWD_DANCE] = next.clawdDance
+                    prefs[Keys.CLAWD_REDUCE] = next.clawdReduceMotion
+                    prefs[Keys.CLAWD_QUIET] = next.clawdQuiet
+                    prefs[Keys.ENERGY_PRICE] = next.energyPricePerKwh
+                    prefs[Keys.BIOMETRIC] = next.biometricLock
+                    prefs[Keys.CAMERA_SECURE] = next.hideCameraInRecents
+                    prefs[Keys.SPAGHETTI] = next.spaghettiDetection
+                    prefs[Keys.FARM_QUICK] = next.showFarmQuickAction
                 }
             }
         }
@@ -190,13 +238,32 @@ class SettingsRepository(private val context: Context) {
         vibrationCaliDefault = this[Keys.VIBRATION] ?: false,
         uploadFolder = this[Keys.UPLOAD] ?: "/cache",
         ftpPort = this[Keys.FTP_PORT]?.toIntOrNull() ?: 990,
-        thingiverseToken = this[Keys.THINGIVERSE] ?: "",
         printersJson = this[Keys.PRINTERS] ?: "",
         activePrinterId = this[Keys.ACTIVE_PRINTER] ?: "",
-        showModelsTab = this[Keys.SHOW_MODELS] ?: true,
-        showMakerWorldTab = this[Keys.SHOW_MAKERWORLD] ?: true,
         dashboardOrder = this[Keys.DASHBOARD_ORDER] ?: "",
         dashboardHidden = this[Keys.DASHBOARD_HIDDEN] ?: "",
+        clawdEnabled = this[Keys.CLAWD_ENABLED] ?: false,
+        clawdName = this[Keys.CLAWD_NAME] ?: "Clawd",
+        clawdOwnerName = this[Keys.CLAWD_OWNER] ?: "",
+        clawdSize = this[Keys.CLAWD_SIZE] ?: 1,
+        clawdColor = this[Keys.CLAWD_COLOR] ?: 0,
+        clawdWander = this[Keys.CLAWD_WANDER] ?: true,
+        clawdPhrases = this[Keys.CLAWD_PHRASES] ?: true,
+        clawdSleepMin = this[Keys.CLAWD_SLEEP] ?: 3,
+        clawdEat = this[Keys.CLAWD_EAT] ?: true,
+        clawdPoop = this[Keys.CLAWD_POOP] ?: true,
+        clawdShake = this[Keys.CLAWD_SHAKE] ?: true,
+        clawdHaptics = this[Keys.CLAWD_HAPTICS] ?: true,
+        clawdBrain = this[Keys.CLAWD_BRAIN] ?: true,
+        clawdAbout = this[Keys.CLAWD_ABOUT] ?: "",
+        clawdDance = this[Keys.CLAWD_DANCE] ?: true,
+        clawdReduceMotion = this[Keys.CLAWD_REDUCE] ?: false,
+        clawdQuiet = this[Keys.CLAWD_QUIET] ?: true,
+        energyPricePerKwh = this[Keys.ENERGY_PRICE] ?: 0f,
+        biometricLock = this[Keys.BIOMETRIC] ?: false,
+        hideCameraInRecents = this[Keys.CAMERA_SECURE] ?: true,
+        spaghettiDetection = this[Keys.SPAGHETTI] ?: false,
+        showFarmQuickAction = this[Keys.FARM_QUICK] ?: false,
     )
 
     private object Keys {
@@ -235,12 +302,32 @@ class SettingsRepository(private val context: Context) {
         val VIBRATION = booleanPreferencesKey("vibration_cali_default")
         val UPLOAD = stringPreferencesKey("upload_folder")
         val FTP_PORT = stringPreferencesKey("ftp_port")
-        val THINGIVERSE = stringPreferencesKey("thingiverse_token")
         val PRINTERS = stringPreferencesKey("printer_profiles")
         val ACTIVE_PRINTER = stringPreferencesKey("active_printer")
-        val SHOW_MODELS = booleanPreferencesKey("show_models_tab")
-        val SHOW_MAKERWORLD = booleanPreferencesKey("show_makerworld_tab")
         val DASHBOARD_ORDER = stringPreferencesKey("dashboard_order")
         val DASHBOARD_HIDDEN = stringPreferencesKey("dashboard_hidden")
+        val CLAWD_ENABLED = booleanPreferencesKey("clawd_enabled")
+        val CLAWD_NAME = stringPreferencesKey("clawd_name")
+        val CLAWD_OWNER = stringPreferencesKey("clawd_owner")
+        val CLAWD_SIZE = intPreferencesKey("clawd_size")
+        val CLAWD_COLOR = intPreferencesKey("clawd_color")
+        val CLAWD_WANDER = booleanPreferencesKey("clawd_wander")
+        val CLAWD_PHRASES = booleanPreferencesKey("clawd_phrases")
+        val CLAWD_SLEEP = intPreferencesKey("clawd_sleep")
+        val CLAWD_EAT = booleanPreferencesKey("clawd_eat")
+        val CLAWD_POOP = booleanPreferencesKey("clawd_poop")
+        val CLAWD_SHAKE = booleanPreferencesKey("clawd_shake")
+        val CLAWD_HAPTICS = booleanPreferencesKey("clawd_haptics")
+        val CLAWD_BRAIN = booleanPreferencesKey("clawd_brain")
+        val CLAWD_ABOUT = stringPreferencesKey("clawd_about")
+        val CLAWD_DANCE = booleanPreferencesKey("clawd_dance")
+        val CLAWD_REDUCE = booleanPreferencesKey("clawd_reduce")
+        val CLAWD_QUIET = booleanPreferencesKey("clawd_quiet")
+        val ENERGY_PRICE = floatPreferencesKey("energy_price")
+        val BIOMETRIC = booleanPreferencesKey("biometric_lock")
+        val CAMERA_SECURE = booleanPreferencesKey("camera_secure")
+        val SPAGHETTI = booleanPreferencesKey("spaghetti_detection")
+        val FARM_QUICK = booleanPreferencesKey("farm_quick_action")
+        val SMART_LIGHT_MIGRATED = booleanPreferencesKey("smart_light_migrated")
     }
 }

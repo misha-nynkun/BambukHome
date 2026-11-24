@@ -57,10 +57,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.layerpilot.data.model.AmsUnit
 import ru.layerpilot.data.model.PrintPhase
+import ru.layerpilot.data.printer.ConnectionStatus
 import ru.layerpilot.data.model.PrinterSnapshot
 import ru.layerpilot.data.model.Spool
 import ru.layerpilot.ui.AppViewModel
 import ru.layerpilot.ui.components.ScreenHeader
+import ru.layerpilot.ui.components.CalmLoadingIndicator
 import ru.layerpilot.ui.components.SectionTitle
 import ru.layerpilot.ui.components.SpoolDot
 import ru.layerpilot.ui.components.StatBlock
@@ -72,10 +74,13 @@ import ru.layerpilot.ui.components.slotLabel
 fun AmsScreen(vm: AppViewModel, onBack: () -> Unit) {
     val state by vm.snapshot.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val connection by vm.connection.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<Spool?>(null) }
     var confirmUnload by remember { mutableStateOf(false) }
     val busy = state.phase in listOf(PrintPhase.PRINTING, PrintPhase.PAUSED, PrintPhase.PREPARE)
     val changing = state.targetSlot != 255 && state.targetSlot != state.activeSlot
+    val loadingData = connection !is ConnectionStatus.Connected && !settings.demoMode &&
+        !state.hasAms && state.externalSpool == null
 
     Column(
         Modifier
@@ -93,6 +98,23 @@ fun AmsScreen(vm: AppViewModel, onBack: () -> Unit) {
             onBack = onBack,
         )
         Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+
+            if (loadingData) {
+                TonalCard(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CalmLoadingIndicator(size = 32.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Получаем данные о пластике",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold)
+                            Text("Ждём ответ принтера по локальной сети…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
 
             if (changing) {
                 TonalCard(color = MaterialTheme.colorScheme.primaryContainer) {
@@ -232,8 +254,13 @@ private fun AmsUnitCard(unit: AmsUnit, state: PrinterSnapshot, onSlot: (Spool) -
                     horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Rounded.WaterDrop, null, Modifier.size(13.dp),
                         tint = MaterialTheme.colorScheme.tertiary)
-                    Text(unit.humidityLabel, fontSize = 11.sp, lineHeight = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "${unit.humidityLabel} · ${unit.humidityHint}",
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        color = if (unit.humidityWarn) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.width(4.dp))
                     Icon(Icons.Rounded.AcUnit, null, Modifier.size(13.dp),
                         tint = MaterialTheme.colorScheme.tertiary)
@@ -255,11 +282,25 @@ private fun AmsUnitCard(unit: AmsUnit, state: PrinterSnapshot, onSlot: (Spool) -
             }
         }
         Spacer(Modifier.height(10.dp))
+        val humidityProgress = unit.humidityPercent?.let { it / 100f }
+            ?: if (unit.humidity in 1..5) unit.humidity / 5f else 0f
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { humidityProgress.coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth().height(5.dp),
+            color = if (unit.humidityWarn) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.tertiary,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        )
+        Spacer(Modifier.height(6.dp))
         Text(
-            if (unit.humidity in 1..2) "Влажность высокая — просушите катушки"
-            else "Влажность в норме",
+            when {
+                unit.humidityWarn -> "Влажность повышенная — просушите катушки"
+                unit.humidityPercent != null -> "Датчик влажности: ${unit.humidityPercent}% · ${unit.humidityHint}"
+                unit.humidity in 1..5 -> "Датчик влажности: уровень ${unit.humidity}/5 · ${unit.humidityHint}"
+                else -> "Датчик влажности не найден"
+            },
             style = MaterialTheme.typography.bodySmall,
-            color = if (unit.humidity in 1..2) MaterialTheme.colorScheme.error
+            color = if (unit.humidityWarn) MaterialTheme.colorScheme.error
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -375,8 +416,11 @@ private fun ExternalSpoolCard(
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(spool?.type ?: "Не заряжена", style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold)
+                Text(
+                    spool?.type ?: if (active) "Пластик загружен" else "Не заряжена",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
                 Text(
                     buildString {
                         spool?.brand?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
@@ -402,7 +446,7 @@ private fun ExternalSpoolCard(
                 Spacer(Modifier.width(6.dp))
                 Text("Заправить")
             }
-            FilledTonalButton(onClick = onUnload, enabled = spool != null,
+            FilledTonalButton(onClick = onUnload, enabled = spool != null || active,
                 shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)) {
                 Icon(Icons.Rounded.ArrowUpward, null, Modifier.size(17.dp))
                 Spacer(Modifier.width(6.dp))

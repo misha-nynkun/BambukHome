@@ -7,6 +7,7 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -33,6 +34,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Info
@@ -41,14 +43,11 @@ import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Print
-import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.QrCode
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.ViewQuilt
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -74,17 +73,31 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.layerpilot.BuildConfig
+import ru.layerpilot.R
 import ru.layerpilot.data.identity.AppIdentity
+import ru.layerpilot.data.identity.CustomIconStore
 import ru.layerpilot.data.model.ThemeMode
 import ru.layerpilot.ui.AppViewModel
 import ru.layerpilot.ui.components.ConnectionBadge
 import ru.layerpilot.ui.components.ScreenHeader
 import ru.layerpilot.ui.components.TonalCard
+import ru.layerpilot.ui.components.BackupSection
+import ru.layerpilot.data.settings.profileList
+import ru.layerpilot.clawd.ClawdDaily
+import ru.layerpilot.clawd.ClawdPalettes
+import ru.layerpilot.clawd.ClawdSizes
+import ru.layerpilot.clawd.ClawdSizeOrder
+import androidx.compose.material.icons.rounded.Pets
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
 
 @Composable
 fun SettingsScreen(
@@ -93,7 +106,9 @@ fun SettingsScreen(
     onEditConnection: () -> Unit,
     onPrinterInfo: () -> Unit = {},
     onPrinters: () -> Unit = {},
-    onMakerWorld: () -> Unit = {},
+    onMaintenance: () -> Unit = {},
+    onHistory: () -> Unit = {},
+    onFarm: () -> Unit = {},
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val connection by vm.connection.collectAsStateWithLifecycle()
@@ -102,7 +117,23 @@ fun SettingsScreen(
     var showDisconnect by remember { mutableStateOf(false) }
     val fontLoading by vm.fontLoading.collectAsStateWithLifecycle()
     val fontError by vm.fontError.collectAsStateWithLifecycle()
-    var token by remember(settings.thingiverseToken) { mutableStateOf(settings.thingiverseToken) }
+    var category by remember { mutableStateOf<SettingsCategory?>(null) }
+    var customIconVersion by remember { mutableStateOf(0) }
+    val printerCount = remember(settings.printersJson, settings.host, settings.activePrinterId) {
+        settings.profileList().size
+    }
+    BackHandler(enabled = category != null) { category = null }
+
+    if (category == null) {
+        SettingsHome(
+            settings = settings,
+            connection = connection,
+            onBack = onBack,
+            onOpen = { category = it },
+            onPrinters = onPrinters,
+        )
+        return
+    }
 
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         vm.updateSettings { it.copy(notifications = granted) }
@@ -110,6 +141,15 @@ fun SettingsScreen(
     }
     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importFont(uri)
+    }
+    val customIconPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            if (CustomIconStore.save(ctx, uri) && CustomIconStore.pin(ctx, settings.printerName.ifBlank { "BambukHome" })) {
+                vm.message("Ярлык с иконкой отправлен на рабочий стол")
+            } else {
+                vm.message("Не удалось закрепить ярлык. Проверьте настройки лаунчера.")
+            }
+        }
     }
     val livePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         vm.updateSettings { it.copy(liveNotification = granted) }
@@ -122,9 +162,14 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState())
             .navigationBarsPadding(),
     ) {
-        ScreenHeader(title = "Настройки", subtitle = "всё локально", onBack = onBack)
+        ScreenHeader(
+            title = category?.title ?: "Настройки",
+            subtitle = category?.hint ?: "всё локально",
+            onBack = { category = null },
+        )
         Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
+            if (category == SettingsCategory.PRINTER) {
             // ---------------------------------------------------- принтер
             SectionCard(icon = Icons.Rounded.Wifi, title = "Принтер") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -235,6 +280,35 @@ fun SettingsScreen(
                 )
             }
 
+                Spacer(Modifier.height(8.dp))
+                SwitchRow(
+                    "Биометрическая блокировка",
+                    "Спрашивать отпечаток или лицо при запуске",
+                    settings.biometricLock,
+                    { v -> vm.updateSettings { it.copy(biometricLock = v) } },
+                )
+                if (printerCount >= 3) {
+                    SwitchRow(
+                        "Ферма на рабочем столе",
+                        "Быстрая кнопка при 3+ принтерах",
+                        settings.showFarmQuickAction,
+                        { v -> vm.updateSettings { it.copy(showFarmQuickAction = v) } },
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                BackupSection(vm)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onMaintenance) {
+                        Icon(Icons.Rounded.Build, null, Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Сервис")
+                    }
+                    TextButton(onClick = onHistory) { Text("История") }
+                    TextButton(onClick = onFarm) { Text("Ферма") }
+                }
+            }
+
+            if (category == SettingsCategory.APPEARANCE) {
             // ---------------------------------------------------- внешний вид
             SectionCard(icon = Icons.Rounded.Palette, title = "Внешний вид") {
                 Text("Тема", style = MaterialTheme.typography.bodyMedium,
@@ -342,27 +416,6 @@ fun SettingsScreen(
                 )
             }
 
-            // ---------------------------------------------------- вкладки
-            SectionCard(icon = Icons.Rounded.ViewQuilt, title = "Рабочий стол") {
-                Text(
-                    "Скройте вкладки, которыми не пользуетесь — они перестанут занимать место внизу.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SwitchRow(
-                    title = "Вкладка «Модели»",
-                    subtitle = "Ссылки, импорт файлов и 3D-просмотр",
-                    checked = settings.showModelsTab,
-                    onChange = { v -> vm.updateSettings { it.copy(showModelsTab = v) } },
-                )
-                SwitchRow(
-                    title = "Вкладка MakerWorld",
-                    subtitle = "Поиск моделей и аккаунт Bambu Lab",
-                    checked = settings.showMakerWorldTab,
-                    onChange = { v -> vm.updateSettings { it.copy(showMakerWorldTab = v) } },
-                )
-            }
-
             // ---------------------------------------------------- шрифт
             SectionCard(icon = Icons.Rounded.TextFields, title = "Шрифт") {
                 ChipFlow {
@@ -454,6 +507,9 @@ fun SettingsScreen(
                 )
             }
 
+            }
+
+            if (category == SettingsCategory.PRINTING) {
             // ---------------------------------------------------- печать
             SectionCard(icon = Icons.Rounded.Print, title = "Печать по умолчанию") {
                 SwitchRow(
@@ -535,10 +591,22 @@ fun SettingsScreen(
             // ---------------------------------------------------- камера
             SectionCard(icon = Icons.Rounded.CameraAlt, title = "Камера") {
                 SwitchRow(
-                    title = "Свет при открытии",
-                    subtitle = "Включить подсветку камеры, если она выключена",
+                    title = "Умный свет в камере",
+                    subtitle = "Включить свет при входе, если вы выключили его сами, и погасить при выходе",
                     checked = settings.cameraAutoLight,
                     onChange = { v -> vm.updateSettings { it.copy(cameraAutoLight = v) } },
+                )
+                SwitchRow(
+                    title = "Скрывать камеру в недавних",
+                    subtitle = "Запретить превью экрана камеры в списке приложений",
+                    checked = settings.hideCameraInRecents,
+                    onChange = { v -> vm.updateSettings { it.copy(hideCameraInRecents = v) } },
+                )
+                SwitchRow(
+                    title = "Детектор соплей (эксперимент)",
+                    subtitle = "Локальный анализ кадров. Может ошибаться при смене света",
+                    checked = settings.spaghettiDetection,
+                    onChange = { v -> vm.updateSettings { it.copy(spaghettiDetection = v) } },
                 )
                 Text(
                     "Поток идёт напрямую по TLS на порт 6000. Снимки сохраняются в галерею в папку BambukHome.",
@@ -547,82 +615,192 @@ fun SettingsScreen(
                 )
             }
 
-            if (settings.showMakerWorldTab) {
-                // ---------------------------------------------------- MakerWorld
-                SectionCard(icon = Icons.Rounded.Public, title = "MakerWorld") {
+            }
+
+            if (category == SettingsCategory.CLAWD) {
+                SectionCard(icon = Icons.Rounded.Pets, title = "Кто такой Clawd") {
                     Text(
-                        "Войдите в аккаунт Bambu Lab прямо в приложении: поиск, избранное и скачивание 3MF " +
-                            "работают через официальный Bambu Cloud. Пароль не сохраняется, токен входа " +
-                            "хранится зашифрованным.",
+                        "Clawd — локальный питомец, который живёт в приложении. Он ходит, спит, " +
+                            "радуется удачной печати, подсказывает про филамент и рассказывает факты " +
+                            "о 3D-печати. Работает без ИИ, сети и аккаунтов. По умолчанию выключен, " +
+                            "чтобы не мешать тем, кому он не нужен.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = onMakerWorld,
+                    SwitchRow(
+                        "Включить Clawd",
+                        "Питомец поверх приложения, внизу справа",
+                        settings.clawdEnabled,
+                        { v -> vm.updateSettings { it.copy(clawdEnabled = v) } },
+                    )
+                    if (settings.clawdEnabled) {
+                        OutlinedTextField(
+                            value = settings.clawdName,
+                            onValueChange = { v -> vm.updateSettings { it.copy(clawdName = v.take(24)) } },
+                            label = { Text("Имя питомца") },
+                            singleLine = true,
                             shape = RoundedCornerShape(14.dp),
-                        ) {
-                            Icon(Icons.Rounded.Public, null, Modifier.size(17.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Открыть кабинет")
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = settings.clawdOwnerName,
+                            onValueChange = { v -> vm.updateSettings { it.copy(clawdOwnerName = v.take(30)) } },
+                            label = { Text("Как вас зовут") },
+                            placeholder = { Text("Имя для приветствия Clawd") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = settings.clawdAbout,
+                            onValueChange = { v -> vm.updateSettings { it.copy(clawdAbout = v.take(200)) } },
+                            label = { Text("Что Clawd должен знать о вас") },
+                            placeholder = { Text("Например: люблю PETG и тишину") },
+                            minLines = 2,
+                            maxLines = 3,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text("Засыпает", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(1 to "1 мин", 3 to "3 мин", 10 to "10 мин", 0 to "Никогда").forEach { (m, label) ->
+                                FilterChip(
+                                    selected = settings.clawdSleepMin == m,
+                                    onClick = { vm.updateSettings { it.copy(clawdSleepMin = m) } },
+                                    label = { Text(label) },
+                                )
+                            }
                         }
-                        TextButton(onClick = {
-                            val opened = runCatching {
-                                ctx.startActivity(Intent(Intent.ACTION_VIEW,
-                                    Uri.parse(MAKERWORLD_LOGIN_URL)))
-                            }.isSuccess
-                            if (!opened) vm.message("Не удалось открыть браузер")
-                        }) { Text("Вход в браузере") }
+                        Spacer(Modifier.height(8.dp))
+                        Text("Размер", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ClawdSizeOrder.forEach { index ->
+                                FilterChip(
+                                    selected = settings.clawdSize == index,
+                                    onClick = { vm.updateSettings { it.copy(clawdSize = index) } },
+                                    label = { Text(ClawdSizes[index]) },
+                                )
+                            }
+                        }
+                        Text("Окрас", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ClawdPalettes.forEachIndexed { index, palette ->
+                                FilterChip(
+                                    selected = settings.clawdColor == index,
+                                    onClick = { vm.updateSettings { it.copy(clawdColor = index) } },
+                                    leadingIcon = {
+                                        Surface(shape = CircleShape,
+                                            color = palette.body,
+                                            modifier = Modifier.size(14.dp)) {}
+                                    },
+                                    label = { Text(palette.name) },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        SwitchRow("Гуляет сам", "Ходит и поглядывает", settings.clawdWander,
+                            { v -> vm.updateSettings { it.copy(clawdWander = v) } })
+                        SwitchRow("Разговаривает", "Факты по нажатию и советы", settings.clawdPhrases,
+                            { v -> vm.updateSettings { it.copy(clawdPhrases = v) } })
+                        SwitchRow("Ест пиксели", "Шалость, не трогает кнопки", settings.clawdEat,
+                            { v -> vm.updateSettings { it.copy(clawdEat = v) } })
+                        SwitchRow("Оставляет следы", "Пиксельная кучка, можно убрать", settings.clawdPoop,
+                            { v -> vm.updateSettings { it.copy(clawdPoop = v) } })
+                        SwitchRow("Реагирует на тряску", "Акселерометр", settings.clawdShake,
+                            { v -> vm.updateSettings { it.copy(clawdShake = v) } })
+                        SwitchRow("Танцует", "Радуется хорошим событиям", settings.clawdDance,
+                            { v -> vm.updateSettings { it.copy(clawdDance = v) } })
+                        SwitchRow("Вибрация", "Только приятные отклики, без звука", settings.clawdHaptics,
+                            { v -> vm.updateSettings { it.copy(clawdHaptics = v) } })
+                        SwitchRow("Умный мозг", "Вопросы про печать и влажность", settings.clawdBrain,
+                            { v -> vm.updateSettings { it.copy(clawdBrain = v) } })
+                        SwitchRow("Тихие часы", "Ночью только важное", settings.clawdQuiet,
+                            { v -> vm.updateSettings { it.copy(clawdQuiet = v) } })
+                        SwitchRow("Меньше движения", "Спокойный режим и экономия батареи", settings.clawdReduceMotion,
+                            { v -> vm.updateSettings { it.copy(clawdReduceMotion = v) } })
+                        Text(
+                            "ИИ отключён. Все факты и советы хранятся в приложении и работают офлайн.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
                     }
+                }
+                val day = remember { ClawdDaily.forDate() }
+                SectionCard(icon = Icons.Rounded.Info, title = "Дневник Clawd") {
+                    Text("Сегодня ${day.dateText}, ${day.weekday} · ${day.season}",
+                        style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
+                    Text(day.fact, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Совет дня: ${day.tip}", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Фокус года: ${day.yearTheme} — ${day.yearThemeHint}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
                     Text(
-                        "Если Bambu просит капчу, откройте вход в браузере. Для кабинета в приложении " +
-                            "используйте вход по email — он идёт напрямую в Bambu Cloud без Cloudflare.",
+                        "Запас: ${ru.layerpilot.clawd.ClawdFactDeck.summary()} — без ИИ и без сети.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            if (settings.showModelsTab) {
-                // ---------------------------------------------------- модели
-                SectionCard(icon = Icons.Rounded.Link, title = "Модели") {
+            if (category == SettingsCategory.ICONS) {
+                SectionCard(icon = Icons.Rounded.Pets, title = "Своя иконка") {
                     Text(
-                        "Thingiverse отдаёт файлы через API. Токен бесплатный: Settings → Apps → API.",
+                        "Android не позволяет менять иконку приложения на лету. Можно закрепить " +
+                            "свою фотографию как отдельный ярлык на рабочем столе — он будет выглядеть " +
+                            "как кастомная иконка принтера.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = token,
-                        onValueChange = { token = it.trim() },
-                        label = { Text("Токен Thingiverse") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                    Text(
+                        "Выберите квадратное фото — приложение предложит закрепить ярлык с ним. " +
+                            "Это безопасно: фото хранится только на телефоне.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(
-                            onClick = { vm.updateSettings { it.copy(thingiverseToken = token) }; vm.message("Токен сохранён") },
-                        ) { Text("Сохранить") }
-                        if (settings.thingiverseToken.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = { customIconPicker.launch(arrayOf("image/*")) },
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Icon(Icons.Rounded.Apps, null, Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Выбрать фото и закрепить")
+                    }
+                    val customBitmap = remember(customIconVersion, category) { CustomIconStore.load(ctx) }
+                    customBitmap?.let { bmp ->
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "Своя иконка",
+                                modifier = Modifier.size(72.dp).clip(RoundedCornerShape(18.dp)),
+                            )
+                            Spacer(Modifier.width(12.dp))
                             TextButton(onClick = {
-                                token = ""
-                                vm.updateSettings { it.copy(thingiverseToken = "") }
-                            }) { Text("Убрать", color = MaterialTheme.colorScheme.error) }
+                                CustomIconStore.clear(ctx)
+                                customIconVersion++
+                                vm.message("Своя иконка удалена из приложения")
+                            }) {
+                                Text("Удалить иконку", color = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
-                    Text(
-                        "Printables отдаёт превью и ссылки. MakerWorld-модели ищите и скачивайте " +
-                            "во вкладке MakerWorld — там работает аккаунт Bambu Lab и 3MF.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
 
+            if (category == SettingsCategory.ABOUT) {
             // ---------------------------------------------------- о приложении
             SectionCard(icon = Icons.Rounded.Info, title = "О приложении") {
                 InfoRow("Версия", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
@@ -630,6 +808,8 @@ fun SettingsScreen(
                 InfoRow("Android", "8+ (API 26)")
                 InfoRow("Сборка", if (official) "официальная" else "неофициальная")
                 InfoRow("Связь", "MQTT 8883 · FTPS ${settings.ftpPort} · камера 6000")
+                InfoRow("Ферма", "до 8 принтеров одновременно")
+                InfoRow("Данные", "только на телефоне")
 
                 if (!official) {
                     Spacer(Modifier.height(10.dp))
@@ -658,8 +838,8 @@ fun SettingsScreen(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "Ни подписок и ни рекламы. Управление принтером работает локально: IP, код доступа " +
-                                "и файлы остаются между телефоном и принтером в домашней сети. Аккаунт Bambu Lab " +
-                                "нужен только для дополнительного раздела MakerWorld и полностью опционален.",
+                                "и файлы остаются между телефоном и принтером в домашней сети. " +
+                                "Облако, аккаунты и реклама не используются.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -673,16 +853,24 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(Modifier.padding(14.dp)) {
-                        Text("MakerWorld", fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Вкладка MakerWorld ищет модели, показывает профили печати и скачивает 3MF после " +
-                                "входа в аккаунт Bambu Lab. Пароль не сохраняется, токен входа шифруется. " +
-                                "Вход в браузере открывает официальный SSO Bambu Lab; cookie браузера Android " +
-                                "не передаёт приложению, поэтому кабинет использует авторизацию Bambu Cloud.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Text("Что нового в ${BuildConfig.VERSION_NAME}", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(6.dp))
+                        listOf(
+                            "2.0.0 — вторая стабильная версия. Исправлен порядок размеров Clawd, убран нерабочий переключатель гравитации.",
+                            "Стабильные стандартные индикаторы загрузки — без MD3-экспериментов.",
+                            "Удалены разделы «Модели», MakerWorld и стили иконок Plumpy/Fluent.",
+                            "В камере появилось управление столом и головой, а приближённую картинку можно двигать пальцем.",
+                            "Работает скачивание видео из «Файлов» и очистка SD от всего, кроме .gcode.",
+                            "Clawd по нажатию рассказывает новый факт и совет, не повторяясь.",
+                            "Умный свет камеры, резервная копия настроек и автоудаление старых уведомлений.",
+                        ).forEach { line ->
+                            Row(Modifier.padding(vertical = 2.dp)) {
+                                Text("•", color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(end = 7.dp))
+                                Text(line, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
 
@@ -797,6 +985,7 @@ fun SettingsScreen(
                 }
             }
 
+            }
             Spacer(Modifier.height(30.dp))
         }
     }
@@ -815,6 +1004,37 @@ fun SettingsScreen(
             },
             dismissButton = { TextButton(onClick = { showDisconnect = false }) { Text("Отмена") } },
         )
+    }
+}
+
+@Composable
+private fun ChipRow(labels: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        labels.forEachIndexed { index, label ->
+            FilterChip(
+                selected = selectedIndex == index,
+                onClick = { onSelect(index) },
+                label = { Text(label) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PackPreview(label: String, res: Int) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.size(64.dp)) {
+            Image(
+                painter = painterResource(res),
+                contentDescription = label,
+                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier.padding(14.dp),
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
 

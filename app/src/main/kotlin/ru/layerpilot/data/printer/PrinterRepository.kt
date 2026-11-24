@@ -383,7 +383,7 @@ class PrinterRepository {
                 Spool(1, "PETG", 0xFF2B2B2B.toInt(), 45, 220, 260, "Bambu", "Basic"),
                 Spool(2, "PLA", 0xFFF1F1F1.toInt(), 12, 190, 230, "Bambu", "Basic"),
                 Spool(3, "ABS", 0xFFFF7A45.toInt(), -1, 240, 280, "Bambu", "HF"),
-            )),
+            ), humidityRaw = 24),
         ) else emptyList()
         return PrinterSnapshot(
             phase = PrintPhase.PRINTING,

@@ -1,6 +1,7 @@
 package ru.layerpilot.data.models
 
 import android.util.Xml
+import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import java.io.File
 import java.util.zip.ZipFile
@@ -21,6 +22,8 @@ data class SkipPlate(
     val parts: List<SkipPart>,
     val bedWidth: Float = 256f,
     val bedHeight: Float = 256f,
+    /** Превью пластины из 3MF (Metadata/plate_N.png), если оно есть. */
+    val preview: ByteArray? = null,
 )
 
 /**
@@ -61,6 +64,7 @@ object PlateInspector {
             val settings = parseSettings(zip)
             val meshes = loadMeshes(zip)
             val sliceNames = parseSliceInfo(zip)
+            val plateBoxes = parsePlateBoxes(zip, plateIndex)
             val plate = settings.plates.firstOrNull { it.index == plateIndex }
                 ?: settings.plates.firstOrNull()
             val parts = mutableListOf<SkipPart>()
@@ -75,16 +79,60 @@ object PlateInspector {
                     ?: settings.assemble[inst.objectId to 0]
                     ?: IDENTITY
                 val vertices = meshes.verticesFor(settings.rootFile, inst.objectId)
-                val polygon = if (vertices.isNotEmpty()) {
+                var polygon = if (vertices.isNotEmpty()) {
                     val raw = hullOf(vertices, transform)
                     normalizeToBed(raw, plateIndex, bedWidth, bedHeight)
                 } else emptyList()
+                if (polygon.isEmpty()) {
+                    val box = plateBoxes.byId[inst.identifyId]
+                        ?: plateBoxes.byName[name]
+                        ?: plateBoxes.all.getOrNull(parts.size)
+                        ?: plateBoxes.all.getOrNull(inst.instanceId)
+                    if (box != null) polygon = boxPolygon(box, bedWidth, bedHeight)
+                }
+                if (polygon.isEmpty()) {
+                    // Геометрии может не быть в старом 3MF. Берём положение из
+                    // build/assemble transform, иначе раскладываем сеткой.
+                    val tx = transform[9]
+                    val ty = transform[10]
+                    if (tx in 5f..(bedWidth - 5f) && ty in 5f..(bedHeight - 5f)) {
+                        polygon = box(tx, ty, 18f)
+                    } else {
+                        val index = parts.size
+                        val cols = 3
+                        val col = index % cols
+                        val row = index / cols
+                        val x = 35f + col * (bedWidth - 70f) / 2f
+                        val y = 35f + row * 36f
+                        polygon = box(x, y, 22f)
+                    }
+                }
                 parts.add(SkipPart(inst.identifyId, name, polygon))
             }
             if (parts.isEmpty()) {
-                sliceNames.forEach { (id, name) -> parts.add(SkipPart(id, name)) }
+                val positions = buildPositions(settings, bedWidth, bedHeight)
+                val orderedBoxes = if (plateBoxes.all.size == sliceNames.size) plateBoxes.all else emptyList()
+                sliceNames.entries.forEachIndexed { index, (id, name) ->
+                    val bbox = orderedBoxes.getOrNull(index)
+                        ?: plateBoxes.byId[id]
+                        ?: plateBoxes.byName[name]
+                    val p = positions.getOrNull(index)
+                    val polygon = when {
+                        bbox != null -> boxPolygon(bbox, bedWidth, bedHeight)
+                        p != null -> box(p.first, p.second, 18f)
+                        else -> gridBox(index, bedWidth, bedHeight)
+                    }
+                    parts.add(SkipPart(id, name, polygon))
+                }
             }
-            return SkipPlate(parts, bedWidth, bedHeight)
+            // Даже если прошивка/старый 3MF не дали геометрию, схема не должна
+            // быть пустой: раскладываем оставшиеся детали читаемой сеткой.
+            val fixed = parts.mapIndexed { index, part ->
+                if (part.hasShape) part else part.copy(
+                    polygon = gridBox(index, bedWidth, bedHeight),
+                )
+            }
+            return SkipPlate(fixed, bedWidth, bedHeight, readPreview(zip, plateIndex))
         }
     }
 
@@ -464,6 +512,93 @@ object PlateInspector {
             .toList()
         return if (numbers.size >= 2) numbers[0] to numbers[1] else 256f to 256f
     }
+
+    private data class PlateBoxes(
+        val byId: Map<Int, FloatArray>,
+        val byName: Map<String, FloatArray>,
+        val all: List<FloatArray> = emptyList(),
+    )
+
+    private fun parsePlateBoxes(zip: ZipFile, plateIndex: Int): PlateBoxes {
+        val entry = listOf(
+            "Metadata/plate_$plateIndex.json",
+            "Metadata/plate_1.json",
+        ).firstNotNullOfOrNull { zip.getEntry(it) } ?: return PlateBoxes(emptyMap(), emptyMap())
+        return runCatching {
+            val root = JSONObject(zip.getInputStream(entry).use { it.readBytes().decodeToString() })
+            val arr = root.optJSONArray("bbox_objects") ?: return PlateBoxes(emptyMap(), emptyMap())
+            val byId = mutableMapOf<Int, FloatArray>()
+            val byName = mutableMapOf<String, FloatArray>()
+            val all = mutableListOf<FloatArray>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val b = o.optJSONArray("bbox") ?: continue
+                if (b.length() < 4) continue
+                val box = floatArrayOf(
+                    b.optDouble(0).toFloat(), b.optDouble(1).toFloat(),
+                    b.optDouble(2).toFloat(), b.optDouble(3).toFloat(),
+                )
+                all.add(box)
+                o.optInt("id", -1).takeIf { it >= 0 }?.let { byId[it] = box }
+                o.optString("name").takeIf { it.isNotBlank() }?.let { byName[it] = box }
+            }
+            PlateBoxes(byId, byName, all)
+        }.getOrDefault(PlateBoxes(emptyMap(), emptyMap()))
+    }
+
+    private fun boxPolygon(b: FloatArray, bedWidth: Float, bedHeight: Float): List<PlatePoint> {
+        val x1 = b[0].coerceIn(0f, bedWidth)
+        val y1 = b[1].coerceIn(0f, bedHeight)
+        val x2 = b[2].coerceIn(0f, bedWidth)
+        val y2 = b[3].coerceIn(0f, bedHeight)
+        return listOf(
+            PlatePoint(x1, y1), PlatePoint(x2, y1),
+            PlatePoint(x2, y2), PlatePoint(x1, y2),
+        )
+    }
+
+    private fun readPreview(zip: ZipFile, plateIndex: Int): ByteArray? {
+        val names = listOf(
+            "Metadata/plate_$plateIndex.png",
+            "Metadata/plate_1.png",
+            "Metadata/plate_${plateIndex}_small.png",
+        )
+        for (name in names) {
+            val entry = zip.getEntry(name) ?: continue
+            return runCatching { zip.getInputStream(entry).use { it.readBytes() } }.getOrNull()
+        }
+        return null
+    }
+
+    private fun gridBox(index: Int, bedWidth: Float, bedHeight: Float): List<PlatePoint> {
+        val cols = 3
+        val col = index % cols
+        val row = index / cols
+        val x = 35f + col * (bedWidth - 70f) / 2f
+        val y = 35f + row * 36f
+        return box(x.coerceIn(20f, bedWidth - 20f), y.coerceIn(20f, bedHeight - 20f), 20f)
+    }
+
+    private fun buildPositions(
+        settings: SettingsData,
+        bedWidth: Float,
+        bedHeight: Float,
+    ): List<Pair<Float, Float>> {
+        val all = buildList {
+            settings.buildItems.values.flatten().forEach { add(it) }
+            settings.assemble.values.forEach { add(it) }
+        }
+        return all.map { it[9] to it[10] }
+            .filter { (x, y) -> x in 5f..(bedWidth - 5f) && y in 5f..(bedHeight - 5f) }
+            .distinctBy { (x, y) -> "${x.toInt()}:${y.toInt()}" }
+    }
+
+    private fun box(cx: Float, cy: Float, half: Float): List<PlatePoint> = listOf(
+        PlatePoint(cx - half, cy - half),
+        PlatePoint(cx + half, cy - half),
+        PlatePoint(cx + half, cy + half),
+        PlatePoint(cx - half, cy + half),
+    )
 
     fun contains(polygon: List<PlatePoint>, x: Float, y: Float): Boolean {
         if (polygon.size < 3) return false

@@ -2,14 +2,11 @@
 
 package ru.layerpilot.ui.components
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
@@ -17,12 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -30,16 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.graphics.shapes.Morph
-import kotlinx.coroutines.delay
-import ru.layerpilot.ui.shapes.ExpressiveShapes
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -47,158 +37,103 @@ import kotlin.math.min
 import kotlin.math.sin
 
 // ---------------------------------------------------------------------------------------------
-// Загрузка: материальная «морфящаяся» фигура (Material 3 Expressive loading indicator).
+// Стандартные индикаторы загрузки. Никаких внешних MD3-плагинов и волн.
 // ---------------------------------------------------------------------------------------------
 
-private val loadingMorphs: List<Morph> by lazy {
-    val sequence = ExpressiveShapes.LoadingSequence
-    sequence.indices.map { index ->
-        Morph(sequence[index], sequence[(index + 1) % sequence.size])
-    }
-}
-
-private val determinateMorph: Morph by lazy {
-    Morph(ExpressiveShapes.Circle, ExpressiveShapes.SoftBurst)
-}
-
-/**
- * Индикатор загрузки Material 3 Expressive: плавно перетекает между фирменными фигурами
- * (soft burst → cookie → pentagon → pill → sunny → cookie → oval) и медленно вращается.
- *
- * @param contained true — фигура в цветном круге 48 dp, как в официальных примерах;
- * false — только фигура, без подложки (для мест, где нужен компактный спиннер).
- */
+/** Обычный стабильный круговой индикатор Material 3. */
 @Composable
 fun ExpressiveLoadingIndicator(
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
-    contained: Boolean = true,
+    contained: Boolean = false,
     containerColor: Color = MaterialTheme.colorScheme.primaryContainer,
     indicatorColor: Color = if (contained) MaterialTheme.colorScheme.onPrimaryContainer
     else MaterialTheme.colorScheme.primary,
-    animated: Boolean = LocalWaveStyle.current.animated,
+    animated: Boolean = true,
 ) {
-    val morphProgress = remember { Animatable(0f) }
-    var morphIndex by remember { mutableIntStateOf(0) }
-    var stepRotation by remember { mutableFloatStateOf(90f) }
-    val rotation = rememberInfiniteTransition(label = "loading-rotation")
-    val globalRotation by rotation.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            tween(4666, easing = LinearEasing),
-        ),
-        label = "loading-global-rotation",
-    )
-    val rotationDegrees = if (animated) globalRotation else 0f
-    LaunchedEffect(animated) {
-        if (!animated) {
-            morphProgress.snapTo(0f)
-            return@LaunchedEffect
-        }
-        while (true) {
-            morphProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = 0.6f,
-                    stiffness = Spring.StiffnessMediumLow,
-                    visibilityThreshold = 0.05f,
-                ),
-            )
-            morphIndex = (morphIndex + 1) % loadingMorphs.size
-            morphProgress.snapTo(0f)
-            stepRotation = (stepRotation + 90f) % 360f
-            delay(120)
-        }
-    }
-
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val diameter = this.size.minDimension
-            if (contained) {
-                drawCircle(color = containerColor, radius = diameter / 2f)
+    val tint = if (animated) indicatorColor else indicatorColor.copy(alpha = 0.72f)
+    if (contained) {
+        Box(modifier.size(size), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(containerColor, radius = this.size.minDimension / 2f)
             }
-            val inner = diameter * if (contained) 0.74f else 0.92f
-            val path = Path()
-            loadingMorphs[morphIndex].morphTo(path, morphProgress.value)
-            val matrix = Matrix().apply { scale(inner, inner) }
-            path.transform(matrix)
-            val bounds = path.getBounds()
-            path.translate(
-                Offset(
-                    diameter / 2f - bounds.center.x,
-                    diameter / 2f - bounds.center.y,
-                )
+            CircularProgressIndicator(
+                modifier = Modifier.size(size * 0.62f),
+                color = tint,
+                strokeWidth = 3.dp,
             )
-            rotate(
-                degrees = stepRotation + morphProgress.value * 90f + rotationDegrees,
-                pivot = Offset(diameter / 2f, diameter / 2f),
-            ) {
-                drawPath(path = path, color = indicatorColor)
-            }
         }
+    } else {
+        CircularProgressIndicator(
+            modifier = modifier.size(size),
+            color = tint,
+            strokeWidth = 3.dp,
+        )
     }
 }
 
-/** Детерминированный вариант: фигура «растёт» вместе с прогрессом. */
+/** Детерминированный индикатор: показывает конкретный прогресс. */
 @Composable
 fun ExpressiveLoadingIndicator(
     progress: Float,
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
-    contained: Boolean = true,
+    contained: Boolean = false,
     containerColor: Color = MaterialTheme.colorScheme.primaryContainer,
     indicatorColor: Color = if (contained) MaterialTheme.colorScheme.onPrimaryContainer
     else MaterialTheme.colorScheme.primary,
 ) {
-    val shown by animateFloatAsState(progress.coerceIn(0f, 1f), tween(500), label = "morph")
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val diameter = this.size.minDimension
-            if (contained) drawCircle(color = containerColor, radius = diameter / 2f)
-            val inner = diameter * if (contained) 0.74f else 0.92f
-            val path = Path()
-            determinateMorph.morphTo(path, shown)
-            path.transform(Matrix().apply { scale(inner, inner) })
-            val bounds = path.getBounds()
-            path.translate(Offset(diameter / 2f - bounds.center.x, diameter / 2f - bounds.center.y))
-            rotate(degrees = -180f * shown, pivot = Offset(diameter / 2f, diameter / 2f)) {
-                drawPath(path = path, color = indicatorColor)
+    val value = progress.coerceIn(0f, 1f)
+    if (contained) {
+        Box(modifier.size(size), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(containerColor, radius = this.size.minDimension / 2f)
             }
+            CircularProgressIndicator(
+                progress = { value },
+                modifier = Modifier.size(size * 0.62f),
+                color = indicatorColor,
+                strokeWidth = 3.dp,
+            )
         }
+    } else {
+        CircularProgressIndicator(
+            progress = { value },
+            modifier = modifier.size(size),
+            color = indicatorColor,
+            strokeWidth = 3.dp,
+        )
     }
 }
 
-/** Компактный спиннер для кнопок и строк состояния. */
+/** Спокойное стандартное кольцо без пульсации и рывков. */
+@Composable
+fun CalmLoadingIndicator(
+    modifier: Modifier = Modifier,
+    size: Dp = 48.dp,
+    color: Color = MaterialTheme.colorScheme.primary,
+    trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+) {
+    CircularProgressIndicator(
+        modifier = modifier.size(size),
+        color = color,
+        trackColor = trackColor.copy(alpha = 0.45f),
+        strokeWidth = (size.value * 0.085f).coerceIn(2f, 5f).dp,
+    )
+}
+
+/** Компактный стандартный спиннер для кнопок и строк состояния. */
 @Composable
 fun ExpressiveSpinner(
     modifier: Modifier = Modifier,
     size: Dp = 20.dp,
     color: Color = MaterialTheme.colorScheme.primary,
 ) {
-    ExpressiveLoadingIndicator(
-        modifier = modifier,
-        size = size,
-        contained = false,
-        indicatorColor = color,
+    CircularProgressIndicator(
+        modifier = modifier.size(size),
+        color = color,
+        strokeWidth = 2.dp,
     )
-}
-
-private fun Morph.morphTo(destination: Path, progress: Float) {
-    destination.rewind()
-    var first = true
-    forEachCubic(progress.coerceIn(0f, 1f)) { cubic ->
-        if (first) {
-            destination.moveTo(cubic.anchor0X, cubic.anchor0Y)
-            first = false
-        }
-        destination.cubicTo(
-            cubic.control0X, cubic.control0Y,
-            cubic.control1X, cubic.control1Y,
-            cubic.anchor1X, cubic.anchor1Y,
-        )
-    }
-    if (!first) destination.close()
 }
 
 // ---------------------------------------------------------------------------------------------

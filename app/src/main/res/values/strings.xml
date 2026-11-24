@@ -2,4 +2,8 @@
 <resources>
     <string name="app_name">BambukHome</string>
     <string name="app_tagline">Локальное управление принтером</string>
+    <string name="shortcut_farm">Ферма</string>
+    <string name="shortcut_farm_long">Ферма принтеров</string>
+    <string name="shortcut_camera">Камера</string>
+    <string name="shortcut_camera_long">Камера принтера</string>
 </resources>

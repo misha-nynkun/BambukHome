@@ -49,23 +49,23 @@ import ru.layerpilot.data.model.PrinterModel
 import ru.layerpilot.data.model.PrinterSnapshot
 import ru.layerpilot.data.model.Spool
 import ru.layerpilot.data.model.ThemeMode
-import ru.layerpilot.data.models.FilamentSpec
 import ru.layerpilot.data.models.SkipPlate
 import ru.layerpilot.data.models.SkipPart
 import ru.layerpilot.data.models.PlatePoint
 import ru.layerpilot.data.models.PlateInspector
-import ru.layerpilot.data.models.ModelLink
-import ru.layerpilot.data.models.ModelResolver
-import ru.layerpilot.data.models.RemoteModelFile
-import ru.layerpilot.data.models.ThreeMfInfo
-import ru.layerpilot.data.models.ThreeMfInspector
 import ru.layerpilot.data.printer.ConnectionStatus
 import ru.layerpilot.data.printer.FanKind
 import ru.layerpilot.data.printer.PrintOptions
 import ru.layerpilot.data.printer.PrinterConfig
 import ru.layerpilot.data.printer.PrinterRepository
+import ru.layerpilot.data.printer.FarmRepository
+import ru.layerpilot.data.printer.FarmPrinter
 import ru.layerpilot.data.settings.AppSettings
 import ru.layerpilot.data.settings.PrinterProfile
+import ru.layerpilot.data.maintenance.HmsCatalog
+import ru.layerpilot.data.backup.BackupCodec
+import ru.layerpilot.widget.WidgetUpdater
+import ru.layerpilot.data.settings.profileList
 import ru.layerpilot.data.settings.deleteProfile
 import ru.layerpilot.data.settings.upsertProfile
 import ru.layerpilot.data.settings.activatedProfile
@@ -82,25 +82,11 @@ data class TransferState(
     val indeterminate: Boolean = false,
 )
 
-data class LocalModel(
-    val file: File,
-    val name: String,
-    val size: Long,
-    val info: ThreeMfInfo?,
-) {
-    val printable: Boolean
-        get() = name.endsWith(".3mf", true) || name.endsWith(".gcode", true)
-}
-
-data class ModelUiState(
-    val loading: Boolean = false,
-    val resolving: Boolean = false,
-    val link: ModelLink? = null,
-    val error: String? = null,
-    val downloadName: String? = null,
-    val downloadProgress: Float = 0f,
-    val local: LocalModel? = null,
-    val history: List<LocalModel> = emptyList(),
+data class ClearSummary(
+    val deleted: Int,
+    val bytes: Long,
+    val skipped: Int,
+    val errors: Int,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -109,14 +95,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val statsRepo = ru.layerpilot.data.stats.StatsRepository(application)
     private var statsTicker: Job? = null
     private val printer = PrinterRepository()
+    private val farmRepo = FarmRepository()
     private val camera = CameraClient()
-    private val resolver = ModelResolver(application)
 
     val settings: StateFlow<AppSettings> = settingsRepo.settings
     val settingsLoaded: StateFlow<Boolean> = settingsRepo.loaded
     val snapshot: StateFlow<PrinterSnapshot> = printer.snapshot
     val stats: StateFlow<ru.layerpilot.data.stats.PrintStats> = statsRepo.stats
+    val printEvents: StateFlow<List<ru.layerpilot.data.stats.PrintEvent>> = statsRepo.events
     val connection: StateFlow<ConnectionStatus> = printer.connection
+    val farmPrinters: StateFlow<Map<String, FarmPrinter>> = farmRepo.states
+    val farmMonitored: StateFlow<Int> = farmRepo.monitored
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
@@ -130,19 +119,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _fontError = MutableStateFlow<String?>(null)
     val fontError: StateFlow<String?> = _fontError.asStateFlow()
 
-    private val _models = MutableStateFlow(ModelUiState())
-    val models: StateFlow<ModelUiState> = _models.asStateFlow()
-
     private val _skipPlate = MutableStateFlow<SkipPlate?>(null)
     val skipPlate: StateFlow<SkipPlate?> = _skipPlate.asStateFlow()
 
     private val _skipLoading = MutableStateFlow(false)
     val skipLoading: StateFlow<Boolean> = _skipLoading.asStateFlow()
 
-    private val _openModels = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val openModels: SharedFlow<Unit> = _openModels.asSharedFlow()
-
     private var lastConnectionKey = "none"
+    private var jobStartedAt = 0L
+    private var jobStartName = ""
     private var liveServiceRunning = false
     private val app: Application get() = getApplication()
 
@@ -165,7 +150,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch { observeEvents() }
-        viewModelScope.launch { refreshHistory() }
     }
 
     private suspend fun observeEvents() {
@@ -174,6 +158,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val before = previous
             previous = now
             if (before == null) return@collect
+            runCatching { WidgetUpdater.save(app, now, settings.value) }
+            if (now.phase == PrintPhase.PRINTING && before.phase != PrintPhase.PRINTING) {
+                jobStartedAt = System.currentTimeMillis()
+                jobStartName = now.jobName
+            }
+            if (jobStartedAt > 0 && (now.phase == PrintPhase.FINISHED || now.phase == PrintPhase.FAILED) &&
+                before.phase != now.phase
+            ) {
+                val end = System.currentTimeMillis()
+                val minutes = ((end - jobStartedAt) / 60_000L).toInt().coerceAtLeast(1)
+                val energy = minutes / 60f * 0.08f
+                statsRepo.addEvent(
+                    ru.layerpilot.data.stats.PrintEvent(
+                        id = end,
+                        name = jobStartName.ifBlank { "Модель" },
+                        printer = settings.value.printerName,
+                        startedAt = jobStartedAt,
+                        finishedAt = end,
+                        minutes = minutes,
+                        success = now.phase == PrintPhase.FINISHED,
+                        energyKwh = energy,
+                        cost = energy * settings.value.energyPricePerKwh,
+                        filamentGrams = 0f,
+                    ),
+                )
+                jobStartedAt = 0L
+                jobStartName = ""
+            }
 
             if (now.phase == PrintPhase.PRINTING) {
                 if (statsTicker == null) {
@@ -215,29 +227,91 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 now.phase == PrintPhase.PAUSED && before.phase != PrintPhase.PAUSED && s.notifyPause &&
                     !liveEnabled ->
                     notify("Печать на паузе", now.stageLabel.ifBlank { now.jobName.ifBlank { "Принтер ждёт" } }, silent = true)
-                now.errors.size > before.errors.size && s.notifyError ->
-                    notify("Ошибка принтера", now.errors.last().text)
+                else -> {
+                    val activePrint = now.phase == ru.layerpilot.data.model.PrintPhase.PRINTING ||
+                        now.phase == ru.layerpilot.data.model.PrintPhase.PAUSED
+                    val fresh = now.errors.filter { e ->
+                        val filamentSensor = e.code.startsWith("07FF-2000-0002") ||
+                            e.code.startsWith("07FF-7000-0002")
+                        before.errors.none { it.code == e.code } &&
+                            (activePrint || !filamentSensor)
+                    }
+                    if (fresh.isNotEmpty() && s.notifyError) {
+                        val info = HmsCatalog.explain(fresh.last().code)
+                        notify(
+                            "Ошибка: ${info.title}",
+                            "${info.cause} ${info.actions.firstOrNull().orEmpty()}",
+                            actions = true,
+                        )
+                    }
+                }
             }
         }
     }
 
-    private fun notify(title: String, text: String, silent: Boolean = false) {
+    private fun notify(title: String, text: String, silent: Boolean = false, actions: Boolean = false) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(app, android.Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) return
+        val s = settings.value
         val intent = Intent(app, MainActivity::class.java)
-        val pending = PendingIntent.getActivity(app, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val pending = PendingIntent.getActivity(
+            app, 0, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         val channel = if (silent) LayerPilotApp.CHANNEL_PROGRESS else LayerPilotApp.CHANNEL_PRINTER
-        val notification: Notification = Notification.Builder(app, channel)
+        val builder = Notification.Builder(app, channel)
             .setSmallIcon(R.drawable.ic_stat_layerpilot)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setContentIntent(pending)
             .setAutoCancel(true)
-            .build()
-        runCatching { NotificationManagerCompat.from(app).notify((System.currentTimeMillis() % 10000).toInt(), notification) }
+            .setGroup("bambu_${s.serial.ifBlank { s.host }}")
+            .setTimeoutAfter(3_600_000L)
+        if (actions && s.host.isNotBlank() && s.serial.isNotBlank()) {
+            builder.addAction(Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(app, R.drawable.ic_stat_layerpilot),
+                "Пауза",
+                actionIntent("pause", s),
+            ).build())
+            builder.addAction(Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(app, R.drawable.ic_stat_layerpilot),
+                "Продолжить",
+                actionIntent("resume", s),
+            ).build())
+            builder.addAction(Notification.Action.Builder(
+                android.graphics.drawable.Icon.createWithResource(app, R.drawable.ic_stat_layerpilot),
+                "Стоп",
+                actionIntent("stop", s),
+            ).build())
+        }
+        val notification = builder.build()
+        val id = when {
+            title.startsWith("Печать завершена") -> 7101
+            title.startsWith("Печать на паузе") -> 7102
+            title.startsWith("Ошибка") -> 7103
+            else -> 7104
+        }
+        runCatching {
+            // Новое событие того же типа заменяет старое, а не копится в шторке.
+            NotificationManagerCompat.from(app).notify(id, notification)
+        }
+    }
+
+    private fun actionIntent(action: String, s: AppSettings): PendingIntent {
+        val intent = Intent(app, ru.layerpilot.notifications.PrinterActionReceiver::class.java).apply {
+            putExtra(ru.layerpilot.notifications.PrinterActionReceiver.EXTRA_ACTION, action)
+            putExtra(ru.layerpilot.notifications.PrinterActionReceiver.EXTRA_HOST, s.host)
+            putExtra(ru.layerpilot.notifications.PrinterActionReceiver.EXTRA_CODE, s.accessCode)
+            putExtra(ru.layerpilot.notifications.PrinterActionReceiver.EXTRA_SERIAL, s.serial)
+            putExtra(ru.layerpilot.notifications.PrinterActionReceiver.EXTRA_MODEL, s.model.name)
+        }
+        return PendingIntent.getBroadcast(
+            app, action.hashCode(), intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
     }
 
     fun message(text: String) {
@@ -272,10 +346,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun savePrinterProfile(profile: PrinterProfile, activate: Boolean = true) {
-        settingsRepo.update { current ->
-            val next = current.upsertProfile(profile)
+        val current = settings.value
+        val exists = current.profileList().any { it.id == profile.id }
+        if (!exists && current.profileList().size >= MAX_PRINTER_PROFILES) {
+            message("Лимит $MAX_PRINTER_PROFILES принтеров. Удалите лишние профили.")
+            return
+        }
+        settingsRepo.update { value ->
+            val next = value.upsertProfile(profile)
             if (activate) next.activatedProfile(profile.id) else next
         }
+    }
+
+    companion object {
+        const val MAX_PRINTER_PROFILES = 200
     }
 
     fun deletePrinterProfile(id: String) {
@@ -291,6 +375,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSettings(block: (AppSettings) -> AppSettings) = settingsRepo.update(block)
+
+    fun exportBackup(password: String): String? =
+        runCatching { BackupCodec.export(settings.value, password) }.getOrNull()
+
+    fun importBackup(text: String, password: String): Boolean {
+        val restored = BackupCodec.import(text, password) ?: return false
+        settingsRepo.update { restored }
+        return true
+    }
 
     fun setThemeMode(mode: ThemeMode) = settingsRepo.update { it.copy(themeMode = mode) }
 
@@ -399,6 +492,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (s.demoMode) s.demoAms else true,
     ).joinToString("|")
 
+    fun clearPrintHistory() = statsRepo.clearEvents()
+
+    fun startFarm() = farmRepo.start(settings.value.profileList())
+    fun stopFarm() = farmRepo.stop()
+    fun farmCommand(id: String, action: String) = farmRepo.command(id, action)
+
     fun reconnect() {
         val s = settings.value
         if (!s.isConfigured) {
@@ -457,12 +556,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val temp = spool?.loadTemp ?: 220
         val current = state.nozzle.toInt().coerceAtLeast(temp)
         command(printer.loadSpool(target, current, temp), "Заправка запущена · $temp°")
+        requestRefresh()
     }
 
     fun unloadSpool() {
         val temp = snapshot.value.activeSpool?.loadTemp ?: 210
         val current = snapshot.value.nozzle.toInt().coerceAtLeast(temp)
         command(printer.unloadSpool(current), "Выгрузка запущена")
+        requestRefresh()
     }
 
     fun amsReply(param: String) {
@@ -499,23 +600,101 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun downloadFile(file: RemoteFile, onProgress: (Float) -> Unit = {}): Result<File> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val target = File(app.cacheDir, "downloads/${file.name}")
+                val safeName = file.name.substringAfterLast('/').substringAfterLast('\\')
+                if (safeName.isBlank()) error("Пустое имя файла")
+                val dir = File(app.cacheDir, "downloads").apply { mkdirs() }
+                val target = File(dir, safeName)
+                _transfer.value = TransferState("Скачивание: $safeName", 0f, true)
                 if (settings.value.demoMode) {
-                    target.parentFile?.mkdirs()
-                    target.writeText("demo")
+                    val video = safeName.endsWith(".avi", true) ||
+                        safeName.endsWith(".mp4", true) ||
+                        safeName.endsWith(".mkv", true) ||
+                        safeName.endsWith(".mov", true)
+                    if (video) {
+                        DemoTimelapse.ensure(app, safeName).copyTo(target, overwrite = true)
+                    } else {
+                        target.writeText("demo")
+                    }
+                    onProgress(1f)
                 } else {
                     ftp().download(file.path, target) { sent, total ->
-                        if (total > 0) onProgress((sent.toFloat() / total).coerceIn(0f, 1f))
+                        val p = if (total > 0) sent.toFloat() / total else 0f
+                        val clamped = p.coerceIn(0f, 1f)
+                        _transfer.value = TransferState(
+                            "Скачивание: $safeName",
+                            clamped,
+                            total <= 0,
+                        )
+                        onProgress(clamped)
                     }
                 }
-                if (Downloads.save(app, target, file.name)) {
-                    message("Сохранено в Загрузки/BambukHome")
-                } else {
-                    message("Файл скачан во внутренний кэш")
+                if (!target.exists() || target.length() == 0L) {
+                    error("принтер не отдал файл")
                 }
+                val saved = Downloads.save(app, target, safeName)
+                message(
+                    if (saved) "Сохранено: Загрузки/BambukHome/$safeName"
+                    else "Файл скачан во внутренний кэш: $safeName",
+                )
                 target
+            }.also {
+                _transfer.value = null
             }
         }
+
+    /** Удаляет пользовательские файлы с SD, не трогая .gcode и системные папки. */
+    suspend fun clearUserFiles(): Result<ClearSummary> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (settings.value.demoMode) {
+                return@runCatching ClearSummary(0, 0, 0, 0)
+            }
+            val client = ftp()
+            val queue = mutableListOf("/")
+            val visited = mutableSetOf<String>()
+            val protectedDirs = setOf(
+                "sys", "config", "logger", "ipcam", "userdata", "firmware",
+                "ota", "update", "upgrade", "backup", "data", "system", "usr", "proc",
+            )
+            var deleted = 0
+            var bytes = 0L
+            var skipped = 0
+            var errors = 0
+            var directories = 0
+            val activeJob = printer.snapshot.value.jobName
+                .substringAfterLast('/')
+                .substringBeforeLast('.')
+            while (queue.isNotEmpty() && directories < 60) {
+                val dir = queue.removeAt(0)
+                if (!visited.add(dir)) continue
+                directories++
+                val children = runCatching { client.list(dir) }.getOrNull()
+                if (children == null) {
+                    errors++
+                    continue
+                }
+                for (child in children) {
+                    if (child.isDir) {
+                        val name = child.name.lowercase()
+                        if (name in protectedDirs || name.startsWith(".")) skipped++
+                        else if (dir.count { it == '/' } < 4) queue.add(child.path)
+                    } else {
+                        val name = child.name
+                        val keep = name.startsWith(".") || name.endsWith(".gcode", true) ||
+                            (activeJob.isNotBlank() && name.contains(activeJob, true))
+                        if (keep) {
+                            skipped++
+                        } else if (runCatching { client.delete(child.path) }.getOrDefault(false)) {
+                            deleted++
+                            bytes += child.size.coerceAtLeast(0)
+                        } else {
+                            errors++
+                        }
+                    }
+                }
+            }
+            ClearSummary(deleted, bytes, skipped, errors)
+        }
+    }
 
     fun setPrintProfile(id: String) = settingsRepo.update { it.copy(printProfile = id) }
 
@@ -557,7 +736,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val name = queryName(uri)
-            if (!ModelResolver.isPrintableFile(name)) {
+            if (!isPrintableName(name)) {
                 throw IllegalArgumentException("Нужен готовый .3mf или .gcode. STL сначала нарежьте в слайсере.")
             }
             val local = copyToCache(uri, name)
@@ -592,12 +771,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { _transfer.value = null }
         }
 
-    suspend fun sendModelToPrinter(options: PrintOptions): Result<String> {
-        val local = _models.value.local?.file ?: return Result.failure(IllegalStateException("Файл не выбран"))
-        return uploadLocal(local, startPrint = true, options)
-            .onSuccess { message("Печать запущена: ${local.name}") }
-    }
-
     private suspend fun simulateTransfer(name: String): Unit {
         _transfer.value = TransferState("Отправка на принтер", 0f)
         repeat(12) { i ->
@@ -627,95 +800,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return name.ifBlank { uri.lastPathSegment?.substringAfterLast('/') ?: "model.3mf" }
     }
 
-    fun inspectLocal(file: File): ThreeMfInfo? =
-        if (file.name.endsWith(".3mf", true)) ThreeMfInspector.inspect(file) else null
-
-    fun selectLocal(file: File) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val info = inspectLocal(file)
-            _models.value = _models.value.copy(
-                local = LocalModel(file, file.name, file.length(), info),
-                error = null,
-            )
-        }
-    }
-
-    // ------------------------------------------------------------ модели из ссылок
-
-    fun resolveLink(text: String) {
-        if (text.isBlank()) {
-            _models.value = _models.value.copy(error = "Вставьте ссылку на модель")
-            return
-        }
-        viewModelScope.launch {
-            _models.value = _models.value.copy(resolving = true, error = null, link = null, local = null)
-            runCatching { resolver.resolve(text, settings.value.thingiverseToken) }
-                .onSuccess { link ->
-                    _models.value = _models.value.copy(resolving = false, link = link)
-                    if (link.files.isEmpty()) {
-                        message("Файлы не найдены — откройте страницу и скачайте 3MF вручную")
-                    }
-                }
-                .onFailure { e ->
-                    val fallback = resolver.fallbackLink(text, e.message)
-                    _models.value = _models.value.copy(
-                        resolving = false,
-                        error = null,
-                        link = fallback,
-                    )
-                    message("Сайт закрылся от автоматики — откройте его вручную")
-                }
-        }
-    }
-
-    fun downloadModel(file: RemoteModelFile) {
-        viewModelScope.launch {
-            _models.value = _models.value.copy(downloadName = file.name, downloadProgress = 0f, error = null)
-            runCatching {
-                resolver.download(file) { sent, total ->
-                    val p = if (total > 0) sent.toFloat() / total else 0f
-                    _models.value = _models.value.copy(downloadProgress = p.coerceIn(0f, 1f))
-                }
-            }.onSuccess { local ->
-                val info = inspectLocal(local)
-                _models.value = _models.value.copy(
-                    downloadName = null,
-                    local = LocalModel(local, local.name, local.length(), info),
-                )
-                refreshHistory()
-                message("Скачано: ${local.name}")
-            }.onFailure { e ->
-                _models.value = _models.value.copy(downloadName = null, error = e.message ?: "Ошибка скачивания")
-            }
-        }
-    }
-
-    fun importShared(uri: Uri) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val name = queryName(uri)
-                val local = copyToCache(uri, name)
-                val info = inspectLocal(local)
-                LocalModel(local, local.name, local.length(), info)
-            }.onSuccess { model ->
-                _models.value = _models.value.copy(local = model, error = null)
-                refreshHistory()
-                _openModels.tryEmit(Unit)
-            }.onFailure { message(it.message ?: "Не удалось открыть файл") }
-        }
-    }
-
-    private suspend fun refreshHistory() {
-        withContext(Dispatchers.IO) {
-            val dirs = listOf(File(app.cacheDir, "models"), File(app.cacheDir, "imports"))
-            val list = dirs.flatMap { dir ->
-                dir.listFiles()?.filter { it.isFile && ModelResolver.isPrintableFile(it.name) }?.map {
-                    LocalModel(it, it.name, it.length(), null)
-                } ?: emptyList()
-            }.sortedByDescending { it.file.lastModified() }.take(12)
-            _models.value = _models.value.copy(history = list)
-        }
-    }
+    private fun isPrintableName(name: String): Boolean =
+        name.endsWith(".3mf", true) || name.endsWith(".gcode", true)
 
     // ------------------------------------------------------------ пропуск деталей
 

@@ -34,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
@@ -61,7 +62,7 @@ import ru.layerpilot.ui.locale.Text
 import ru.layerpilot.ui.theme.NdotFamily
 
 @Composable
-fun PrintersScreen(vm: AppViewModel, onBack: () -> Unit) {
+fun PrintersScreen(vm: AppViewModel, onBack: () -> Unit, onFarm: () -> Unit = {}) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val connection by vm.connection.collectAsStateWithLifecycle()
     val profiles = remember(settings.printersJson, settings.host, settings.activePrinterId) {
@@ -70,14 +71,36 @@ fun PrintersScreen(vm: AppViewModel, onBack: () -> Unit) {
     val activeId = settings.currentProfileId()
     var editor by remember { mutableStateOf<PrinterProfile?>(null) }
     var pendingDelete by remember { mutableStateOf<PrinterProfile?>(null) }
+    var query by remember { mutableStateOf("") }
+    val shown = remember(profiles, query) {
+        val q = query.trim().lowercase()
+        if (q.isBlank()) profiles else profiles.filter {
+            it.name.lowercase().contains(q) || it.host.lowercase().contains(q) ||
+                it.serial.lowercase().contains(q) || it.model.name.lowercase().contains(q)
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding()) {
-            ScreenHeader("Принтеры", "несколько принтеров на одном телефоне", onBack = onBack)
+            ScreenHeader(
+                "Принтеры",
+                "${profiles.size} из ${ru.layerpilot.ui.AppViewModel.MAX_PRINTER_PROFILES} · ферма и склад",
+                onBack = onBack,
+            )
             Column(
                 Modifier.padding(horizontal = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (profiles.size > 6) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text("Поиск по имени, IP или serial") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 if (profiles.isEmpty()) {
                     Surface(shape = RoundedCornerShape(22.dp),
                         color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -91,7 +114,7 @@ fun PrintersScreen(vm: AppViewModel, onBack: () -> Unit) {
                         }
                     }
                 }
-                profiles.forEach { profile ->
+                shown.forEach { profile ->
                     val active = profile.id == activeId
                     PrinterProfileCard(
                         profile = profile,

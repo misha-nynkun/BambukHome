@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBackIosNew
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Folder
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -86,6 +88,8 @@ fun FilesScreen(
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
     var pendingRemote by remember { mutableStateOf<RemoteFile?>(null) }
     var deleteTarget by remember { mutableStateOf<RemoteFile?>(null) }
+    var showClearDialog by remember { mutableStateOf(false) }
+    var clearing by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -110,6 +114,24 @@ fun FilesScreen(
                 else path = path.substringBeforeLast('/').ifBlank { "/" }
             },
             onRefresh = { reloadKey++ },
+            actions = {
+                if (path == "/") {
+                    IconButton(
+                        onClick = { showClearDialog = true },
+                        enabled = !clearing && !loading,
+                    ) {
+                        if (clearing) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.Rounded.DeleteSweep,
+                                "Очистить SD-карту",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            },
         )
 
         Column(Modifier.padding(horizontal = 18.dp)) {
@@ -188,13 +210,24 @@ fun FilesScreen(
                 )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(files, key = { it.path }) { file ->
-                        FileRow(file, onClick = {
-                            when {
-                                file.isDir -> path = file.path
-                                file.isVideo -> onPlayVideo(file)
-                                else -> selected = file
-                            }
-                        })
+                        FileRow(
+                            file = file,
+                            onClick = {
+                                when {
+                                    file.isDir -> path = file.path
+                                    file.isVideo -> onPlayVideo(file)
+                                    else -> selected = file
+                                }
+                            },
+                            onDownload = if (file.isVideo) {
+                                {
+                                    scope.launch {
+                                        vm.downloadFile(file) { }
+                                            .onFailure { vm.message(it.message ?: "Не удалось скачать") }
+                                    }
+                                }
+                            } else null,
+                        )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     }
                     item { Spacer(Modifier.height(20.dp)) }
@@ -366,10 +399,54 @@ fun FilesScreen(
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Отмена") } },
         )
     }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!clearing) showClearDialog = false },
+            title = { Text("Очистить SD-карту?") },
+            text = {
+                Text(
+                    "Будут удалены 3MF, STL, видео таймлапсов, фото и другие пользовательские файлы. " +
+                        "Файлы .gcode и системные папки принтера останутся. Это действие нельзя отменить.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !clearing,
+                    onClick = {
+                        clearing = true
+                        scope.launch {
+                            vm.clearUserFiles()
+                                .onSuccess { summary ->
+                                    showClearDialog = false
+                                    vm.message(
+                                        when {
+                                            settings.demoMode -> "Демо-режим: реальные файлы не удаляются"
+                                            summary.errors == 0 ->
+                                                "Удалено ${summary.deleted} файлов · ${formatSize(summary.bytes)}"
+                                            else -> "Удалено ${summary.deleted}, ошибок ${summary.errors}"
+                                        },
+                                    )
+                                    reloadKey++
+                                }
+                                .onFailure { vm.message(it.message ?: "Не удалось очистить SD") }
+                            clearing = false
+                        }
+                    },
+                ) {
+                    if (clearing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Text("Очистить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (!clearing) showClearDialog = false }) { Text("Отмена") }
+            },
+        )
+    }
 }
 
 @Composable
-private fun FileRow(file: RemoteFile, onClick: () -> Unit) {
+private fun FileRow(file: RemoteFile, onClick: () -> Unit, onDownload: (() -> Unit)? = null) {
     Surface(
         onClick = onClick,
         color = MaterialTheme.colorScheme.surface,
@@ -403,6 +480,12 @@ private fun FileRow(file: RemoteFile, onClick: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            if (onDownload != null) {
+                IconButton(onClick = onDownload) {
+                    Icon(Icons.Rounded.Download, "Скачать видео",
+                        tint = MaterialTheme.colorScheme.primary)
+                }
             }
             if (file.isPrintable) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {

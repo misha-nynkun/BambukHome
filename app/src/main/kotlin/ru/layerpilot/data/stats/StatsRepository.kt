@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val Context.statsStore: DataStore<Preferences> by preferencesDataStore(name = "print_stats")
 
@@ -27,6 +29,19 @@ data class PrintStats(
     val totalHours: Float get() = totalMinutes / 60f
 }
 
+data class PrintEvent(
+    val id: Long,
+    val name: String,
+    val printer: String,
+    val startedAt: Long,
+    val finishedAt: Long,
+    val minutes: Int,
+    val success: Boolean,
+    val energyKwh: Float,
+    val cost: Float,
+    val filamentGrams: Float,
+)
+
 /**
  * Локальная статистика: сколько печатали и сколько раз завершили.
  * Принтер не отдаёт общий счётчик часов по MQTT, поэтому считаем сами.
@@ -36,6 +51,8 @@ class StatsRepository(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _stats = MutableStateFlow(PrintStats())
     val stats: StateFlow<PrintStats> = _stats
+    private val _events = MutableStateFlow<List<PrintEvent>>(emptyList())
+    val events: StateFlow<List<PrintEvent>> = _events
 
     init {
         scope.launch {
@@ -47,6 +64,54 @@ class StatsRepository(private val context: Context) {
                     lastAt = p[Keys.LAST_AT] ?: 0,
                 )
             }
+            runCatching { context.statsStore.data.first() }.getOrNull()?.get(Keys.EVENTS)?.let { raw ->
+                _events.value = parseEvents(raw)
+            }
+        }
+    }
+
+    fun addEvent(event: PrintEvent) {
+        _events.value = (_events.value + event).takeLast(200)
+        persistEvents()
+    }
+
+    fun clearEvents() {
+        _events.value = emptyList()
+        persistEvents()
+    }
+
+    private fun parseEvents(raw: String): List<PrintEvent> = runCatching {
+        val arr = JSONArray(raw)
+        buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                add(
+                    PrintEvent(
+                        id = o.optLong("id"), name = o.optString("name"),
+                        printer = o.optString("printer"), startedAt = o.optLong("started"),
+                        finishedAt = o.optLong("finished"), minutes = o.optInt("minutes"),
+                        success = o.optBoolean("success"), energyKwh = o.optDouble("energy", 0.0).toFloat(),
+                        cost = o.optDouble("cost", 0.0).toFloat(),
+                        filamentGrams = o.optDouble("grams", 0.0).toFloat(),
+                    ),
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    private fun persistEvents() {
+        val arr = JSONArray()
+        _events.value.forEach {
+            arr.put(
+                JSONObject().put("id", it.id).put("name", it.name).put("printer", it.printer)
+                    .put("started", it.startedAt).put("finished", it.finishedAt)
+                    .put("minutes", it.minutes).put("success", it.success)
+                    .put("energy", it.energyKwh.toDouble()).put("cost", it.cost.toDouble())
+                    .put("grams", it.filamentGrams.toDouble()),
+            )
+        }
+        scope.launch {
+            runCatching { context.statsStore.edit { it[Keys.EVENTS] = arr.toString() } }
         }
     }
 
@@ -97,5 +162,6 @@ class StatsRepository(private val context: Context) {
         val FINISHED = intPreferencesKey("prints_finished")
         val LAST_JOB = stringPreferencesKey("last_job")
         val LAST_AT = longPreferencesKey("last_at")
+        val EVENTS = stringPreferencesKey("events")
     }
 }

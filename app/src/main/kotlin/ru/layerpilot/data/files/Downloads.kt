@@ -1,6 +1,7 @@
 package ru.layerpilot.data.files
 
 import android.content.ContentValues
+import android.content.ContentUris
 import android.content.Context
 import android.os.Build
 import android.os.Environment
@@ -22,7 +23,26 @@ object Downloads {
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val resolver = context.contentResolver
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        // Не плодим «файл (1)», «файл (2)» при повторном скачивании.
+        runCatching {
+            resolver.query(
+                collection,
+                arrayOf(MediaStore.Downloads._ID),
+                "${MediaStore.Downloads.RELATIVE_PATH}=? AND ${MediaStore.Downloads.DISPLAY_NAME}=?",
+                arrayOf(values.getAsString(MediaStore.Downloads.RELATIVE_PATH), displayName),
+                null,
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    resolver.delete(
+                        ContentUris.withAppendedId(collection, cursor.getLong(0)),
+                        null,
+                        null,
+                    )
+                }
+            }
+        }
+        val uri = resolver.insert(collection, values) ?: return false
         return runCatching {
             resolver.openOutputStream(uri)?.use { out ->
                 file.inputStream().use { input -> input.copyTo(out, 128 * 1024) }

@@ -15,3 +15,7 @@ captures/
 # 4PDA-материалы (локально, не для GitHub)
 4PDA_THREAD.txt
 4pda/
+
+# Локальные материалы для публикации
+4PDA_FIRST_POST*.txt
+promo/

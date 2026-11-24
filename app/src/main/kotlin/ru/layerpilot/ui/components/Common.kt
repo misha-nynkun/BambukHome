@@ -1,5 +1,6 @@
 package ru.layerpilot.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -54,6 +55,10 @@ fun TonalCard(
         shape = RoundedCornerShape(28.dp),
         color = color,
         tonalElevation = 0.dp,
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
+        ),
     ) {
         Column(Modifier.padding(contentPadding), content = content)
     }

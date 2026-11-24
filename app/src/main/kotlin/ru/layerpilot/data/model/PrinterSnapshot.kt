@@ -16,7 +16,7 @@ enum class PrinterModel(
     X1C("Bambu X1 Carbon", hasCamera = true, hasChamber = true, hasAmsOption = true, buildVolume = "256 × 256 × 256"),
     X1E("Bambu X1E", hasCamera = true, hasChamber = true, hasAmsOption = true, buildVolume = "256 × 256 × 256"),
     P1P("Bambu P1P", hasCamera = true, hasChamber = false, hasAmsOption = true, buildVolume = "256 × 256 × 256"),
-    P1S("Bambu P1S", hasCamera = true, hasChamber = true, hasAmsOption = true, buildVolume = "256 × 256 × 256"),
+    P1S("Bambu P1S", hasCamera = true, hasChamber = false, hasAmsOption = true, buildVolume = "256 × 256 × 256"),
     P2S("Bambu P2S", hasCamera = true, hasChamber = true, hasAmsOption = true, buildVolume = "256 × 256 × 256"),
     A1("Bambu A1", hasCamera = false, hasChamber = false, hasAmsOption = true, buildVolume = "256 × 256 × 256"),
     A1MINI("Bambu A1 mini", hasCamera = false, hasChamber = false, hasAmsOption = true, buildVolume = "180 × 180 × 180"),
@@ -80,9 +80,37 @@ data class AmsUnit(
     val humidity: Int,
     val temp: Float,
     val trays: List<Spool>,
+    /** Сырое показание датчика в процентах, если прошивка его отдаёт. */
+    val humidityRaw: Int? = null,
 ) {
+    val humidityPercent: Int?
+        get() = humidityRaw?.takeIf { it in 0..100 }
+
     val humidityLabel: String
-        get() = if (humidity in 1..5) "$humidity/5" else "—"
+        get() = when {
+            humidityPercent != null -> "${humidityPercent}%"
+            humidity in 1..5 -> "$humidity/5"
+            else -> "—"
+        }
+
+    val humidityHint: String
+        get() {
+            val pct = humidityPercent
+            return when {
+                pct != null -> when {
+                    pct >= 60 -> "влажно"
+                    pct <= 30 -> "сухо"
+                    else -> "норма"
+                }
+                humidity >= 4 -> "влажно"
+                humidity in 1..2 -> "сухо"
+                humidity == 3 -> "норма"
+                else -> "нет датчика"
+            }
+        }
+
+    val humidityWarn: Boolean
+        get() = humidityPercent?.let { it >= 60 } ?: (humidity >= 4)
 }
 
 data class PrinterSnapshot(
@@ -172,6 +200,14 @@ data class PrinterSnapshot(
             "07FF-2000-0002-0004" to "Вытащи внешний пруток из экструдера",
             "07FF-7000-0002-0003" to "Датчик экструдера: кончился пруток",
             "0300-4000-0002-0001" to "Датчик сопла: пластик не идёт (возможен засор)",
+        )
+
+        /** Датчик внешней катушки срабатывает и при обычной заправке/выгрузке — это не ошибка. */
+        val FILAMENT_SENSOR_CODES = setOf(
+            "07FF-2000-0002-0001",
+            "07FF-2000-0002-0002",
+            "07FF-2000-0002-0004",
+            "07FF-7000-0002-0003",
         )
 
         fun parse(raw: JSONObject): PrinterSnapshot {
@@ -267,6 +303,8 @@ data class PrinterSnapshot(
                     humidity = u.optString("humidity").toIntOrNull() ?: -1,
                     temp = u.optString("temp").toFloatOrNull() ?: 0f,
                     trays = trays,
+                    humidityRaw = u.optString("humidity_raw").toIntOrNull()
+                        ?: u.optInt("humidity_raw", -1).takeIf { it in 0..100 },
                 )
             }
             return out

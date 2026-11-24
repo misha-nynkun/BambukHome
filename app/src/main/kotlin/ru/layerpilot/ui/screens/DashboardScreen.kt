@@ -46,9 +46,12 @@ import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.AlertDialog
@@ -58,6 +61,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Surface
 import ru.layerpilot.ui.locale.Text
 import androidx.compose.material3.TextButton
@@ -66,6 +70,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +84,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import ru.layerpilot.data.model.PrintPhase
@@ -106,6 +113,7 @@ fun DashboardScreen(
     onCamera: () -> Unit,
     onFiles: () -> Unit,
     onPrinters: () -> Unit,
+    onFarm: () -> Unit = {},
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val state by vm.snapshot.collectAsStateWithLifecycle()
@@ -125,6 +133,8 @@ fun DashboardScreen(
     val sections = remember(settings.dashboardOrder) { settings.dashboardSections() }
     var jpeg by remember { mutableStateOf<ByteArray?>(null) }
     var live by remember(settings.dashboardLive) { mutableStateOf(settings.dashboardLive) }
+    var pullRefreshing by remember { mutableStateOf(false) }
+    val pullScope = rememberCoroutineScope()
 
     val cameraAvailable = (settings.demoMode || settings.model.hasCamera) &&
         "camera" !in hiddenSections
@@ -138,6 +148,17 @@ fun DashboardScreen(
         }
     }
 
+    PullToRefreshBox(
+        isRefreshing = pullRefreshing,
+        onRefresh = {
+            pullRefreshing = true
+            vm.requestRefresh()
+            pullScope.launch {
+                delay(1200)
+                pullRefreshing = false
+            }
+        },
+    ) {
     Column(
         Modifier
             .fillMaxSize()
@@ -165,6 +186,12 @@ fun DashboardScreen(
             }
             ConnectionBadge(connection, onClick = onSettings)
             Spacer(Modifier.width(4.dp))
+            if (settings.showFarmQuickAction && profiles.size >= 3) {
+                IconButton(onClick = onFarm) {
+                    Icon(Icons.Rounded.Storage, "Ферма принтеров",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             IconButton(onClick = { showLayout = true }) {
                 Icon(Icons.Rounded.Tune, "Настроить экран",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -174,7 +201,28 @@ fun DashboardScreen(
             }
         }
 
-        if (profiles.size > 1) {
+        if (profiles.size > 12) {
+            Surface(
+                onClick = onPrinters,
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Print, null, Modifier.size(17.dp),
+                        tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "${settings.printerName} · ${profiles.size} принтеров",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("Выбрать", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        } else if (profiles.size > 1) {
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 10.dp).horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -253,7 +301,6 @@ fun DashboardScreen(
                     demo = demo,
                     animated = settings.waveAnimation,
                     onOpenControl = onControl,
-                    onOpenFiles = onFiles,
                 )
                 DashboardSection.QUICK -> Row(
                     Modifier.fillMaxWidth(),
@@ -316,7 +363,7 @@ fun DashboardScreen(
                         accent = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f),
                     )
-                    if (settings.model.hasChamber || (state.chamber ?: 0f) > 0f) {
+                    if (settings.model.hasChamber && (state.chamber ?: 0f) > 0f) {
                         val chamber = state.chamber
                         Box(Modifier.weight(1f)) {
                             TempCard(
@@ -355,6 +402,7 @@ fun DashboardScreen(
         }
 
         Spacer(Modifier.height(100.dp))
+    }
     }
 
     if (showStop) {
@@ -429,7 +477,6 @@ private fun HeroCard(
     demo: Boolean,
     animated: Boolean,
     onOpenControl: () -> Unit,
-    onOpenFiles: () -> Unit,
 ) {
     val busy = state.phase in listOf(PrintPhase.PRINTING, PrintPhase.PAUSED, PrintPhase.PREPARE)
     Surface(
@@ -473,7 +520,7 @@ private fun HeroCard(
                             !online -> "Проверьте питание и Wi-Fi"
                             busy -> "Слой ${state.layer} из ${state.totalLayers.takeIf { it > 0 } ?: "—"}"
                             state.phase == PrintPhase.FINISHED -> "Можно забирать со стола"
-                            else -> "Отправьте 3MF из «Файлов» или «Моделей»"
+                            else -> "Отправьте готовый 3MF из «Файлов»"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -487,21 +534,6 @@ private fun HeroCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    } else if (!busy && online) {
-                        Surface(
-                            onClick = onOpenFiles,
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                        ) {
-                            Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Rounded.FolderOpen, null, Modifier.size(17.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                                Text("Выбрать файл", fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            }
-                        }
                     }
                 }
                 Spacer(Modifier.width(8.dp))
@@ -599,7 +631,7 @@ private fun TempCard(
                 color = if (unavailable) MaterialTheme.colorScheme.onSurfaceVariant else accent,
             )
             Text(
-                if (target != null && target > 0) "цель ${target.toInt()}°" else "датчик",
+                if (target != null && target > 0) "цель ${target.toInt()}°" else "",
                 fontSize = 11.sp, lineHeight = 15.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
